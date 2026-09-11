@@ -50,6 +50,47 @@ class Settings(BaseSettings):
     firebase_service_account: SecretStr | None = None
     firebase_project_id: str | None = None
 
+    # The Web API key, used to reach Identity Toolkit for password sign-in and
+    # for the OOB codes behind verification and password reset. The Admin SDK
+    # cannot do either: it can mint and verify tokens, but it cannot check a
+    # password. This used to sit in the browser bundle; it belongs here.
+    firebase_web_api_key: SecretStr | None = None
+
+    # -- Session -----------------------------------------------------------
+    # The browser holds an opaque, HttpOnly cookie and nothing else. No ID
+    # token, no refresh token, no Firebase config: script on the page cannot
+    # read a credential it was never given.
+    session_cookie_name: str = "ragdex_session"
+    session_days: int = 5
+    # Lax is right when the API and the app are same-site, which is what the
+    # Vercel rewrite in the client's vercel.json arranges. Cross-site needs
+    # "none", and then Safari and Chrome's third-party cookie rules apply.
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    # Off only for plain-HTTP local development; any deployment must set it.
+    session_cookie_secure: bool = True
+    session_cookie_domain: str | None = None
+
+    # -- Google sign-in ----------------------------------------------------
+    # The OAuth handshake needs a browser, but it does not need the browser to
+    # hold anything: the client is sent to Google and comes back here, and this
+    # service does the code exchange with the secret.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+
+    # Where to send the browser once sign-in finishes. Also the base for links
+    # inside emails.
+    app_url: str = "http://localhost:5173"
+    # This service's own public origin, which is what Google redirects back to
+    # and must match the OAuth client's registered URI exactly.
+    api_public_url: str = "http://localhost:8000"
+
+    # -- Email -------------------------------------------------------------
+    # Brevo sends the branded verification email. Firebase's own template is
+    # deliberately not used, so only one message goes out.
+    brevo_api_key: SecretStr | None = None
+    brevo_sender_email: str = ""
+    brevo_sender_name: str = "RagDex"
+
     # -- OpenRouter --------------------------------------------------------
     openrouter_api_key: SecretStr | None = None
     openrouter_model: str = ""
@@ -101,7 +142,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "FIREBASE_SERVICE_ACCOUNT is missing: " + ", ".join(missing)
             )
-        return parsed
+        return dict(parsed)
 
 
 @lru_cache

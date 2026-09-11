@@ -9,10 +9,23 @@ from __future__ import annotations
 import logging
 
 from app.core.config import Settings
-from app.schemas.coach import LeakResult
+from app.schemas.coach import LeakResult, Severity
 from app.services import openrouter
-from app.services.stats import MIN_TRADES_FOR_ANALYSIS, Summary
 from app.services.coach import headline_facts
+from app.services.stats import MIN_TRADES_FOR_ANALYSIS, Summary
+
+# The only values LeakResult accepts. Checked here because the model writes
+# this field and a model will eventually write something else.
+ALLOWED_SEVERITY: tuple[Severity, ...] = ("low", "medium", "high")
+
+
+def _severity(value: str) -> Severity:
+    """Narrowed by hand: the model writes this field, and a model will
+    eventually write something that is not one of the three."""
+    for allowed in ALLOWED_SEVERITY:
+        if value == allowed:
+            return allowed
+    return "low"
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +70,6 @@ async def detect_leak(summary: Summary, settings: Settings) -> LeakResult | None
         title=str(payload.get("title", "Pattern found"))[:80],
         finding=str(payload.get("finding", ""))[:400],
         cost_label=str(payload.get("costLabel", ""))[:60],
-        severity=severity if severity in ("low", "medium", "high") else "low",
+        severity=_severity(severity),
         recommendation=str(payload.get("recommendation", ""))[:300],
     )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Any
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -23,7 +24,7 @@ _USERS = "users"
 
 def init_firebase() -> None:
     """Start the Admin SDK. Safe to call more than once."""
-    if firebase_admin._apps:  # noqa: SLF001 - the SDK exposes no public check
+    if firebase_admin._apps:
         return
 
     settings = get_settings()
@@ -44,20 +45,21 @@ def init_firebase() -> None:
 def get_client() -> Client:
     """The Firestore client. Cached: it holds a connection pool."""
     init_firebase()
-    return firestore.client()
+    client: Client = firestore.client()
+    return client
 
 
-def user_doc(uid: str):
+def user_doc(uid: str) -> Any:
     """The account record for one trader."""
     return get_client().collection(_USERS).document(uid)
 
 
-def trades_collection(uid: str):
+def trades_collection(uid: str) -> Any:
     """A trader's journal. Always reached through their own document, so a
     query can never be built that spans two accounts."""
     return user_doc(uid).collection("trades")
 
 
-def insights_collection(uid: str):
+def insights_collection(uid: str) -> Any:
     """Model-written analysis. Read by the client, written only from here."""
     return user_doc(uid).collection("insights")

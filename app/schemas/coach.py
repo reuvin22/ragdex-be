@@ -7,6 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Role = Literal["user", "coach"]
+# Named so the service that narrows a model's answer to it can say so.
+Severity = Literal["low", "medium", "high"]
 
 # Matches the front end's limits, so a message the UI accepts is never
 # rejected here and vice versa.
@@ -42,7 +44,7 @@ class LeakResult(BaseModel):
     title: str
     finding: str
     cost_label: str = ""
-    severity: Literal["low", "medium", "high"] = "low"
+    severity: Severity = "low"
     recommendation: str = ""
 
 

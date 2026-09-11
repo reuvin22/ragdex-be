@@ -33,7 +33,9 @@ def test_list_is_scoped_to_the_token_uid(client, monkeypatch, verified_user) -> 
     assert response.json()["items"][0]["ticker"] == "NVDA"
 
 
-def test_a_client_cannot_choose_whose_journal_to_read(client, monkeypatch, verified_user) -> None:
+def test_a_client_cannot_choose_whose_journal_to_read(
+    client, monkeypatch, verified_user
+) -> None:
     """A uid in the query string is ignored: there is no parameter for it."""
     seen: dict[str, str] = {}
 

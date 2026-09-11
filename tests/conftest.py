@@ -15,11 +15,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
 from app.core.config import Settings, get_settings
 from app.core.security import CurrentUser, get_current_user, get_verified_user
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

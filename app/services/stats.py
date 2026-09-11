@@ -11,9 +11,11 @@ part of the backend that is trivial to test.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from itertools import pairwise
 from statistics import median
 
 from app.schemas.trade import Trade
@@ -128,7 +130,9 @@ def summarise(trades: list[Trade]) -> Summary:
         "exit": _compliance_rate(trades, "complied_exit"),
         "management": _compliance_rate(trades, "complied_management"),
     }
-    summary.by_setup = _worst_first(_bucket(trades, lambda t: t.setup.strip() or "Unlabelled"))
+    summary.by_setup = _worst_first(
+        _bucket(trades, lambda t: t.setup.strip() or "Unlabelled")
+    )
     summary.by_hour = _worst_first(
         _bucket(
             [t for t in trades if _when(t)],
@@ -149,7 +153,7 @@ def _after_loss(ordered: list[Trade]) -> AfterLoss:
     gaps: list[float] = []
     size_changes: list[float] = []
 
-    for previous, current in zip(ordered, ordered[1:]):
+    for previous, current in pairwise(ordered):
         if (previous.net_pl or 0) >= 0:
             continue
 
@@ -181,7 +185,9 @@ def _after_loss(ordered: list[Trade]) -> AfterLoss:
     return stats
 
 
-def _bucket(trades: list[Trade], key) -> dict[str, Bucket]:
+def _bucket(
+    trades: list[Trade], key: Callable[[Trade], str]
+) -> dict[str, Bucket]:
     buckets: dict[str, Bucket] = defaultdict(lambda: Bucket(label=""))
     for trade in trades:
         label = key(trade)

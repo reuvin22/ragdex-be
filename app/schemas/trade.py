@@ -77,7 +77,7 @@ class TradeBase(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _exit_after_entry(self) -> "TradeBase":
+    def _exit_after_entry(self) -> TradeBase:
         if self.entry_at and self.exit_at and self.exit_at < self.entry_at:
             raise ValueError("Exit time cannot be before entry time.")
         return self

@@ -80,17 +80,22 @@ async def complete(
         body["response_format"] = {"type": "json_object"}
 
     try:
-        async with httpx.AsyncClient(timeout=settings.openrouter_timeout_seconds) as client:
+        timeout = settings.openrouter_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 _ENDPOINT,
                 json=body,
                 headers={
-                    "Authorization": f"Bearer {settings.openrouter_api_key.get_secret_value()}",
+                    "Authorization": (
+                        f"Bearer {settings.openrouter_api_key.get_secret_value()}"
+                    ),
                     "Content-Type": "application/json",
                 },
             )
     except httpx.TimeoutException as exc:
-        logger.warning("OpenRouter timed out after %ss", settings.openrouter_timeout_seconds)
+        logger.warning(
+            "OpenRouter timed out after %ss", settings.openrouter_timeout_seconds
+        )
         raise AppError(
             "The coach took too long to answer. Try a shorter question.",
             status_code=504,
@@ -110,7 +115,9 @@ async def complete(
     if response.status_code >= 400:
         # Body may quote the request; log it, never return it.
         logger.error(
-            "OpenRouter returned %s", response.status_code, extra={"body": response.text[:500]}
+            "OpenRouter returned %s",
+            response.status_code,
+            extra={"body": response.text[:500]},
         )
         raise UpstreamError("The coach could not answer just now.")
 
@@ -136,7 +143,8 @@ def parse_json_reply(text: str) -> dict[str, Any]:
     response to parse.
     """
     try:
-        return json.loads(text)
+        parsed: dict[str, Any] = json.loads(text)
+        return parsed
     except json.JSONDecodeError:
         pass
 
@@ -146,6 +154,7 @@ def parse_json_reply(text: str) -> dict[str, Any]:
         raise UpstreamError("The coach did not return usable analysis.")
 
     try:
-        return json.loads(text[start : end + 1])
+        salvaged: dict[str, Any] = json.loads(text[start : end + 1])
+        return salvaged
     except json.JSONDecodeError as exc:
         raise UpstreamError("The coach did not return usable analysis.") from exc

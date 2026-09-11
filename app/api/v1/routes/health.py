@@ -37,7 +37,7 @@ async def ready(response: Response) -> ReadyResponse:
         # Cheapest call that proves credentials and connectivity.
         next(get_client().collections(), None)
         checks["firestore"] = "ok"
-    except Exception as exc:  # noqa: BLE001 - readiness must never raise
+    except Exception as exc:
         firestore_ok = False
         checks["firestore"] = type(exc).__name__
         logger.warning("Readiness check failed: %s", type(exc).__name__)

@@ -15,12 +15,17 @@ from app.core.config import Settings, get_settings
 from app.core.security import (
     CurrentUser,
     get_current_user,
+    get_optional_user,
     get_verified_user,
     rate_limit,
 )
 
 # A signed-in caller. Enough to read.
 ReadUser = Annotated[CurrentUser, Depends(get_current_user)]
+
+# The caller if there is one, for the session endpoint only: "who am I" has to
+# be able to answer "nobody" without that being an error.
+MaybeUser = Annotated[CurrentUser | None, Depends(get_optional_user)]
 
 # A caller who has confirmed their email. Required to write, mirroring the
 # Firestore rules.

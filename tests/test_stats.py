@@ -6,13 +6,13 @@ statistic the product shows is built on them.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.schemas.trade import Trade
 from app.services.stats import summarise
 
-BASE = datetime(2026, 3, 2, 9, 30, tzinfo=timezone.utc)
+BASE = datetime(2026, 3, 2, 9, 30, tzinfo=UTC)
 
 
 def trade(**overrides) -> Trade:
@@ -60,7 +60,9 @@ def test_profit_factor_is_none_without_losses() -> None:
 
 
 def test_open_trades_are_excluded_from_results() -> None:
-    summary = summarise([trade(id="a", net_pl=Decimal("100")), trade(id="b", net_pl=None)])
+    summary = summarise(
+        [trade(id="a", net_pl=Decimal("100")), trade(id="b", net_pl=None)]
+    )
     assert summary.trade_count == 2
     assert summary.closed_count == 1
     assert summary.net_pl == 100

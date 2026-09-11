@@ -1,7 +1,11 @@
 # RagDex API
 
-FastAPI backend for the RagDex trading journal. Its own repository — the Vite
-front end and the existing Vercel functions are untouched.
+FastAPI backend for the RagDex trading journal.
+
+**This service is the only thing that holds a credential.** The web client has
+no Firebase SDK, no vendor key and no project configuration: it knows one
+address and talks to nothing else. Sign-in, the journal, the coach, contact
+search and chat all happen here.
 
 ## Layout
 
@@ -45,15 +49,26 @@ mypy app        # types, strict
 
 ## Security
 
-**Identity.** The only identity trusted is a Firebase ID token verified by this
-service, with `check_revoked=True` so a signed-out session stops working
-immediately rather than at token expiry. No route accepts a uid — not in a
-path, a query string, a body or a header. There is therefore no request a
-client can construct that addresses another trader's journal.
+**Identity.** The only identity trusted is a session cookie this service minted
+and has just verified, with `check_revoked=True` so a signed-out session stops
+working immediately rather than at expiry. The cookie is HttpOnly: script on the
+page cannot read it, which a bearer token in localStorage cannot claim. No route
+accepts a uid — not in a path, a query string, a body or a header. There is
+therefore no request a client can construct that addresses another trader's
+journal, or another trader's messages.
 
-**Writes need a confirmed email**, mirroring `firestore.rules`. Reads use
-`ReadUser`, writes use `WriteUser`; the distinction is visible in every
-signature.
+The cost of a cookie is CSRF, and `SameSite` is the answer — which is why the
+API and the app are arranged to be same-site. See `SESSION_COOKIE_SAMESITE` and
+the rewrite in the client's `vercel.json`.
+
+**Passwords never touch this service's storage.** They go to Identity Toolkit
+and nowhere else. `app/services/identity.py` also decides what an upstream
+failure is allowed to reveal: a wrong password and an unknown address return the
+same message, because distinguishing them hands an attacker an oracle for which
+addresses are registered.
+
+**Writes need a confirmed email.** Reads use `ReadUser`, writes use
+`WriteUser`; the distinction is visible in every signature.
 
 **The Admin SDK bypasses Firestore rules entirely.** That is why every function
 in `repositories/` takes `uid` first and reaches data through
@@ -77,7 +92,9 @@ responses are per-user and must never be reused by a shared cache. Request
 bodies are capped before parsing, including chunked ones.
 
 **Rate limits** are per-uid, with a smaller budget for model-backed routes than
-for journal reads. The limiter is in-process: it is a guard rail for a single
+for journal reads. The sign-in routes are the exception and are keyed by client
+address, because they are the only ones reachable without a session — and a
+password endpoint with no ceiling is a guessing machine. The limiter is in-process: it is a guard rail for a single
 instance, not a distributed quota. **Running more than one replica means moving
 it to Redis** — the interface is unchanged, only the storage.
 
@@ -91,6 +108,14 @@ every name it is commonly saved under.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness. No dependencies touched. |
 | `GET` | `/ready` | Readiness. 503 when Firestore is unreachable. |
+| `GET` | `/api/v1/auth/session` | Who am I. 200 with a null user when nobody is. |
+| `POST` | `/api/v1/auth/register` | Create an account and start a session. |
+| `POST` | `/api/v1/auth/login` | Email and password. Sets the session cookie. |
+| `POST` | `/api/v1/auth/logout` | Clears the cookie and revokes every session. |
+| `POST` | `/api/v1/auth/verify-email` | Sends the branded Brevo message. |
+| `POST` | `/api/v1/auth/password-reset` | Answers the same whether or not the address exists. |
+| `GET` | `/api/v1/auth/google/start` | Redirects the browser to Google. |
+| `GET` | `/api/v1/auth/google/callback` | Where Google returns. Always answers with a redirect. |
 | `GET` | `/api/v1/me` | Your account; upserts on read. |
 | `PATCH` | `/api/v1/me` | Edit your own details. |
 | `PUT` | `/api/v1/me/plan` | Individual or Coach. Nothing is charged. |
@@ -99,27 +124,40 @@ every name it is commonly saved under.
 | `GET/PATCH/DELETE` | `/api/v1/trades/{id}` | Scoped to you. |
 | `POST` | `/api/v1/coach/chat` | Journal read server-side, never from the body. |
 | `GET` | `/api/v1/insights/behavioral-leak` | `needed` when history is too short. |
+| `GET` | `/api/v1/chat/directory` | Find a trader by email. Three-character floor. |
+| `GET/POST` | `/api/v1/chat/contacts` | Your conversations; opening a new one. |
+| `GET` | `/api/v1/chat/threads/{uid}` | One conversation, addressed by person. |
+| `POST` | `/api/v1/chat/threads/{uid}/messages` | Send. The body carries text and nothing else. |
+| `POST` | `/api/v1/chat/threads/{uid}/seen` | Stamp the read marker. |
 
 Paging is cursor-based, not offset: a journal is append-heavy, and an offset
 silently skips or repeats rows when something is inserted mid-read.
 
-## How this relates to the existing app
+No chat route takes a thread id. A conversation is addressed by the person at
+the other end, and the thread is derived from that uid plus the caller's, which
+is what makes it impossible to name a conversation you are not in.
 
-Right now the web client talks to Firestore directly for trades and profile,
-and to Vercel functions for the coach. This service implements all of it, so
-you can move over one endpoint at a time — point `src/lib/trades.ts` at
-`/api/v1/trades` first, leave the rest, and nothing else has to change.
+## How this relates to the web client
 
-Worth knowing before you migrate: going through the API means P&L is computed
-in one place instead of two, and `firestore.rules` stops being the only thing
-between a compromised client and the data. It also costs a network hop the
-direct SDK does not have, and loses Firestore's realtime listeners — the
-journal would need polling or a websocket to stay live.
+The client talks to this service and to nothing else. It has no Firebase SDK,
+no vendor key and no project id — `trades/src/lib/api.ts` is its entire
+outbound surface, and `VITE_API_BASE_URL` its entire configuration.
 
-`coach.md` is still the coach's voice, but this repository now carries its own
-copy — a service that has to reach into a sibling checkout to boot cannot be
-deployed on its own. The two are the same text today; edit both, or make one of
-them the source and copy it across, because nothing enforces it.
+Two consequences worth knowing:
+
+**Firestore rules are no longer a security boundary.** They protected a client
+that read the database directly; nothing does now, and `firestore.rules` is
+deny-all. What protects the data is this service — every repository function
+takes a verified uid first, and the Admin SDK bypasses rules regardless.
+
+**Realtime listeners are gone.** That is the real cost of the move: a browser
+that can subscribe to a collection is a browser holding credentials for it. The
+journal refetches after a write. The chat dock polls — four seconds while open,
+a minute while closed, skipped entirely in a hidden tab. Making chat feel live
+again means SSE or a websocket here, not a database handle there.
+
+`coach.md` is the coach's voice, and this repository is now its only home —
+the client's copy went with the Vercel functions it fed. Edit it here.
 
 ## Deploying
 

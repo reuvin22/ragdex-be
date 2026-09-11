@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from google.cloud.firestore_v1 import DocumentSnapshot, Query
-from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+from google.cloud.firestore_v1 import SERVER_TIMESTAMP, DocumentSnapshot, Query
 
 from app.core.errors import AppError, NotFoundError
 from app.db.firestore import trades_collection
@@ -37,7 +36,7 @@ def _to_decimal(value: Any) -> Decimal | None:
 
 def _to_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     return None
 
 

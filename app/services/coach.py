@@ -117,7 +117,10 @@ def headline_facts(summary: Summary) -> str:
         ),
         "Position size change after a loss: not recorded"
         if summary.after_loss.avg_size_change_pct is None
-        else f"Position size change after a loss: {summary.after_loss.avg_size_change_pct}%",
+        else (
+            "Position size change after a loss: "
+            f"{summary.after_loss.avg_size_change_pct}%"
+        ),
         (
             "Plan compliance: entry {entry}%, exit {exit}%, management {management}%"
         ).format(**summary.plan_compliance),
@@ -188,7 +191,10 @@ async def ask(
     settings: Settings,
 ) -> openrouter.Completion:
     messages = [
-        {"role": "system", "content": build_system_prompt(summary, language, display_name)}
+        {
+            "role": "system",
+            "content": build_system_prompt(summary, language, display_name),
+        }
     ]
     for turn in history:
         messages.append(

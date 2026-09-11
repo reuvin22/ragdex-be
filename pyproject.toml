@@ -6,7 +6,10 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
-    "pydantic>=2.9",
+    # [email] because the auth schemas validate addresses with EmailStr, and
+    # rejecting a malformed one here is cheaper than a round trip to Identity
+    # Toolkit to be told the same thing.
+    "pydantic[email]>=2.9",
     "pydantic-settings>=2.6",
     "firebase-admin>=6.5",
     "httpx>=0.27",
@@ -43,7 +46,13 @@ select = [
 ignore = ["B008"]  # FastAPI's Depends() in defaults is the documented idiom.
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
+# S101 (assert) is the point of a test file. S105/S106 flag the literal
+# passwords a sign-in test has to contain to be a sign-in test.
+"tests/*" = ["S101", "S105", "S106"]
+# Email markup. Every line is a table cell with inline styles, because that is
+# the only thing Gmail, Outlook and Apple Mail all render the same way — and
+# wrapping one would change what is sent.
+"app/services/email_template.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"

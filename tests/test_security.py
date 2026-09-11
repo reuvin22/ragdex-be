@@ -6,19 +6,18 @@ here is a data breach, not a bug.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.core.errors import AppError
 from app.core.security import RateLimiter, get_current_user, get_verified_user
 from app.schemas.trade import TradeCreate
+from fastapi.testclient import TestClient
 
 
 def test_unauthenticated_request_is_rejected(app) -> None:
     """No override for identity here: the real dependency runs and finds no
-    bearer token."""
+    session cookie."""
     with TestClient(app) as client:
         response = client.get("/api/v1/trades")
 
@@ -27,7 +26,7 @@ def test_unauthenticated_request_is_rejected(app) -> None:
 
 
 def test_write_requires_a_confirmed_email(app, unverified_user) -> None:
-    """Mirrors firestore.rules, where an unverified session cannot write."""
+    """An unverified session may read its own journal but may not write."""
     app.dependency_overrides[get_current_user] = lambda: unverified_user
     # get_verified_user is left real, so it applies its own check.
 
@@ -40,7 +39,9 @@ def test_write_requires_a_confirmed_email(app, unverified_user) -> None:
     assert response.json()["error"]["code"] == "email_unverified"
 
 
-def test_read_does_not_require_a_confirmed_email(app, unverified_user, monkeypatch) -> None:
+def test_read_does_not_require_a_confirmed_email(
+    app, unverified_user, monkeypatch
+) -> None:
     from app.repositories import trades as repo
 
     monkeypatch.setattr(repo, "list_trades", lambda uid, *, limit, cursor: ([], None))
@@ -65,7 +66,7 @@ def test_trade_payload_rejects_a_javascript_url() -> None:
 
 
 def test_trade_payload_rejects_exit_before_entry() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with pytest.raises(ValueError):
         TradeCreate(
             ticker="NVDA",
@@ -110,11 +111,10 @@ def test_oversized_body_is_refused_before_the_route() -> None:
     """Exercised directly rather than through the app: the limit is read when
     the middleware is constructed, so a fixture that mutates settings after
     the app exists would prove nothing."""
+    from app.core.middleware import BodySizeLimitMiddleware
     from starlette.applications import Starlette
     from starlette.responses import PlainTextResponse
     from starlette.routing import Route
-
-    from app.core.middleware import BodySizeLimitMiddleware
 
     async def echo(request):  # pragma: no cover - must never be reached
         return PlainTextResponse("reached the route")

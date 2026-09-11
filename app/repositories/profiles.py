@@ -7,7 +7,7 @@ request body, so a caller cannot rewrite whose account this is.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,8 @@ from app.core.errors import NotFoundError
 from app.core.security import CurrentUser
 from app.db.firestore import user_doc
 from app.schemas.profile import PlanId, Profile, ProfileUpdate
+
+from . import directory
 
 _FIELDS = {
     "display_name": "displayName",
@@ -34,7 +36,7 @@ _FIELDS = {
 
 def _to_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     return None
 
 
@@ -87,6 +89,12 @@ def record_sign_in(user: CurrentUser) -> Profile:
         document["displayName"] = user.name or ""
 
     reference.set(document, merge=True)
+
+    # The public half of the same record, so contact search can find this
+    # account by email. Written here because this is the one function every
+    # sign-in passes through.
+    directory.publish(user)
+
     return _to_profile(user.uid, reference.get().to_dict() or {})
 
 
@@ -108,7 +116,15 @@ def update_profile(uid: str, payload: ProfileUpdate) -> Profile:
     snapshot = reference.get()
     if not snapshot.exists:
         raise NotFoundError("No account record yet.")
-    return _to_profile(uid, snapshot.to_dict() or {})
+
+    profile = _to_profile(uid, snapshot.to_dict() or {})
+
+    # Keep the searchable copy in step with the name and avatar just saved.
+    directory.publish_fields(
+        uid, display_name=profile.display_name, photo_url=profile.photo_url
+    )
+
+    return profile
 
 
 def set_plan(uid: str, plan: PlanId) -> Profile:
