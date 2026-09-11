@@ -69,3 +69,10 @@ def configure_logging(*, json_logs: bool, level: int = logging.INFO) -> None:
         logger = logging.getLogger(name)
         logger.handlers = []
         logger.propagate = True
+
+    # httpx logs every outbound URL at INFO, and the Identity Toolkit key rides
+    # in the query string. It is a public identifier rather than a credential,
+    # but log aggregators get shared and copied, so it has no business being in
+    # one. Our own call sites log what actually matters — the endpoint, the
+    # status and the translated code.
+    logging.getLogger("httpx").setLevel(logging.WARNING)

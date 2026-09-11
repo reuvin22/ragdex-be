@@ -89,6 +89,23 @@ _MESSAGES: dict[str, tuple[str, int, str]] = {
         status.HTTP_403_FORBIDDEN,
         "signup_disabled",
     ),
+    # Firebase did not recognise the identity provider's token. In practice
+    # this is almost always one thing: the OAuth client that issued the token
+    # belongs to a different Google Cloud project than the Firebase project
+    # verifying it, so the token's audience is a client Firebase does not
+    # trust. Fix it in Firebase Console > Authentication > Sign-in method >
+    # Google > Web SDK configuration, which is where Firebase is told which
+    # client to accept.
+    "INVALID_IDP_RESPONSE": (
+        "Google sign-in is not finished being set up on the server.",
+        status.HTTP_501_NOT_IMPLEMENTED,
+        "not_configured",
+    ),
+    "INVALID_REQUEST_URI": (
+        "Google sign-in is not finished being set up on the server.",
+        status.HTTP_501_NOT_IMPLEMENTED,
+        "not_configured",
+    ),
 }
 
 # Codes that mean "no such account" or "wrong password". All collapse to one

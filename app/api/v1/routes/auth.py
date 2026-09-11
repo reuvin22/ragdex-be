@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import RedirectResponse
 from firebase_admin import auth as firebase_auth
 
@@ -240,7 +240,6 @@ async def google_start(settings: AppSettings) -> RedirectResponse:
 
 @router.get("/google/callback", summary="Finish Google sign-in", include_in_schema=False)
 async def google_callback(
-    request: Request,
     settings: AppSettings,
     state: str = Query(default=""),
     code: str = Query(default=""),
@@ -276,8 +275,13 @@ async def google_callback(
         id_token = await google_oauth.exchange_code(code, settings)
 
         stage = "firebase_sign_in"
+        # The configured callback, not request.base_url. Starlette derives
+        # base_url from forwarded headers, and behind a proxy that does not
+        # reach it — on Render it comes out http:// — while Identity Toolkit
+        # validates this field. Deriving it from settings makes it the same
+        # string we sent Google, which is what it is supposed to be.
         result = await identity.sign_in_with_google(
-            id_token, str(request.base_url), settings
+            id_token, google_oauth.redirect_uri(settings), settings
         )
     except AppError as exc:
         logger.warning("Google sign-in failed at %s: %s", stage, exc.code)
