@@ -36,7 +36,7 @@ services:
       # hostname. If a deploy is ever marked unhealthy with 400s in the log,
       # this is the line that did it.
       - key: ALLOWED_HOSTS
-        value: ragdex-api.onrender.com,*.onrender.com,localhost,127.0.0.1
+        value: ragdex-be.onrender.com,*.onrender.com,localhost,127.0.0.1
 
       # The web app's exact origin(s), comma-separated, scheme included —
       # e.g. https://ragdex.vercel.app. No wildcards: these requests carry
@@ -68,7 +68,7 @@ services:
       # the wrong kind of value here. Correct it if Render appended a suffix
       # to the service name.
       - key: API_PUBLIC_URL
-        value: https://ragdex-api.onrender.com
+        value: https://ragdex-be.onrender.com
 
       # Where the browser is sent after sign-in, and the base for links inside
       # emails. The web app's origin, e.g. https://ragdex.vercel.app — get
