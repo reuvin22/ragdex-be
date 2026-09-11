@@ -1,0 +1,17 @@
+"""Version 1 of the API.
+
+Routers are assembled here rather than in ``main`` so the app factory stays
+about wiring and a new version is a new module, not an edit to the old one.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from app.api.v1.routes import coach, insights, profile, trades
+
+api_router = APIRouter()
+api_router.include_router(profile.router)
+api_router.include_router(trades.router)
+api_router.include_router(coach.router)
+api_router.include_router(insights.router)
