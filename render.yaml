@@ -59,6 +59,64 @@ services:
       - key: OPENROUTER_MODEL
         value: meta-llama/llama-3.2-3b-instruct
 
+      # ---------------------------------------------------------------- auth
+      #
+      # This service's own public origin. Written out literally rather than
+      # derived from Render's hostname on purpose: it builds the Google
+      # redirect URI, which has to match what is registered on the OAuth
+      # client character for character. A value that can change by itself is
+      # the wrong kind of value here. Correct it if Render appended a suffix
+      # to the service name.
+      - key: API_PUBLIC_URL
+        value: https://ragdex-api.onrender.com
+
+      # Where the browser is sent after sign-in, and the base for links inside
+      # emails. The web app's origin, e.g. https://ragdex.vercel.app — get
+      # this wrong and a successful sign-in bounces the user somewhere else.
+      - key: APP_URL
+        sync: false
+
+      # Firebase Console > Project settings > General > Web API Key. The Admin
+      # SDK can mint and verify tokens but cannot check a password, so every
+      # email/password sign-in goes through Identity Toolkit with this.
+      # Without it, password sign-in answers 501 not_configured.
+      - key: FIREBASE_WEB_API_KEY
+        sync: false
+
+      # Google Cloud console > APIs & Services > Credentials > OAuth 2.0
+      # Client ID (Web application) — not the Firebase console; this is a
+      # different credential. Its authorised redirect URI must be exactly
+      # API_PUBLIC_URL + /api/v1/auth/google/callback
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      # The session cookie. Secure must stay true here: it is only ever turned
+      # off for plain-HTTP local development, and a Secure cookie over http is
+      # silently never sent — sign-in appears to work and the session does not
+      # stick.
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      # Lax is correct while the app reaches this service through the rewrite
+      # in the client's vercel.json, which makes them same-site. Genuinely
+      # cross-site needs "none", and then Safari's third-party cookie blocking
+      # applies and sign-in stops working for those users.
+      - key: SESSION_COOKIE_SAMESITE
+        value: lax
+      - key: SESSION_DAYS
+        value: "5"
+
+      # Brevo sends the branded verification email. The key can send mail as
+      # you — treat it as a password. Without these, /auth/verify-email is the
+      # only thing that stops working.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        value: RagDex
+
       # Limits. The rate limiter is in-process, so these are per instance —
       # which is exact at one instance and approximate the moment you scale.
       # More than one replica means moving the limiter to Redis.
