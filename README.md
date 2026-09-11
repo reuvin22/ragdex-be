@@ -1,12 +1,12 @@
 # RagDex API
 
-FastAPI backend for the RagDex trading journal. Self-contained in `backend/` —
-the Vite front end and the existing Vercel functions are untouched.
+FastAPI backend for the RagDex trading journal. Its own repository — the Vite
+front end and the existing Vercel functions are untouched.
 
 ## Layout
 
 ```
-backend/
+.
 ├── app/
 │   ├── main.py              app factory: settings, middleware, routers
 │   ├── core/                config, auth, errors, logging, middleware
@@ -17,6 +17,7 @@ backend/
 │   ├── services/            business logic — stats, coach, insights
 │   ├── repositories/        the only code that touches Firestore
 │   └── db/firestore.py      Admin SDK setup
+├── coach.md                 the coach’s voice, read at request time
 └── tests/
 ```
 
@@ -28,7 +29,6 @@ product comes from — testable without a network.
 ## Running it
 
 ```bash
-cd backend
 python -m venv .venv && .venv/Scripts/activate    # Windows
 pip install -e ".[dev]"
 cp .env.example .env                              # then fill it in
@@ -116,15 +116,52 @@ between a compromised client and the data. It also costs a network hop the
 direct SDK does not have, and loses Firestore's realtime listeners — the
 journal would need polling or a websocket to stay live.
 
-`coach.md` at the repository root is still the coach's voice; this service
-reads the same file.
+`coach.md` is still the coach's voice, but this repository now carries its own
+copy — a service that has to reach into a sibling checkout to boot cannot be
+deployed on its own. The two are the same text today; edit both, or make one of
+them the source and copy it across, because nothing enforces it.
 
 ## Deploying
 
-`Dockerfile` builds a multi-stage image that runs as a non-root user with no
-build toolchain in the runtime layer. Process count is left to the
-orchestrator, which knows how much CPU the container was actually given.
+`Dockerfile` builds a multi-stage image from this directory that runs as a
+non-root user with no build toolchain in the runtime layer. It binds `$PORT`,
+falling back to 8000. Process count is left to the orchestrator, which knows
+how much CPU the container was actually given.
 
-On Cloud Run or GKE, leave `FIREBASE_SERVICE_ACCOUNT` unset and attach a
-service account to the workload instead — Application Default Credentials are
-picked up automatically, and no key file exists to leak.
+### Render
+
+`render.yaml` is a Blueprint: in Render, **New → Blueprint**, pick this
+repository, and it creates the service. Then fill in the three values the file
+deliberately leaves blank, because two are secrets and one depends on where the
+front end is hosted:
+
+| Variable | What goes in it |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT` | The whole service account JSON, one line. |
+| `CORS_ORIGINS` | The web app's exact origin, e.g. `https://ragdex.vercel.app`. |
+| `OPENROUTER_API_KEY` | Only the coach and the leak card need it. |
+
+Two things differ from Cloud Run and are worth knowing before the first
+deploy:
+
+**There are no Application Default Credentials.** `init_firebase()` runs at
+startup, so a missing or malformed `FIREBASE_SERVICE_ACCOUNT` fails the deploy
+rather than the first request — which is the behaviour you want, but it means
+the variable has to be set before the service will ever come up.
+
+**`ALLOWED_HOSTS` has to include the Render hostname.** `TrustedHostMiddleware`
+answers 400 to anything else, health checks included. The Blueprint sets
+`ragdex-api.onrender.com,*.onrender.com,localhost,127.0.0.1`; correct the first
+entry if Render appended a suffix to the service name. A deploy that builds but
+is marked unhealthy, with 400s in the log, is always this.
+
+The free instance sleeps after 15 minutes idle and takes roughly a minute to
+come back, so the first request after a quiet spell is slow. It is also a
+single instance, which is what the in-process rate limiter assumes — scaling
+past one replica means moving the limiter to Redis.
+
+### Cloud Run or GKE
+
+Leave `FIREBASE_SERVICE_ACCOUNT` unset and attach a service account to the
+workload instead — Application Default Credentials are picked up
+automatically, and no key file exists to leak.

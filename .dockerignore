@@ -1,0 +1,28 @@
+# Keep the build context to what the image actually needs. Anything listed
+# here cannot be COPYed in by accident — which matters most for .env and for
+# service account keys, credentials that must never be baked into a layer.
+.env
+.env.*
+!.env.example
+*serviceAccount*.json
+*firebase-adminsdk*.json
+trading.json
+
+.git
+.gitignore
+.github
+
+tests/
+README.md
+Dockerfile
+.dockerignore
+render.yaml
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/

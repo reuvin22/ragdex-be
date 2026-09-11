@@ -7,7 +7,8 @@ business answering, like what to buy next. And it sounds like a person,
 because the numbers are already on the dashboard.
 
 The coach's voice lives in ``coach.md`` at the repository root, which this
-module loads. Tuning the coach is editing prose, not code.
+module loads and the image ships beside ``app/``. Tuning the coach is editing
+prose, not code.
 """
 
 from __future__ import annotations
@@ -26,8 +27,13 @@ from app.services.stats import Summary
 
 logger = logging.getLogger(__name__)
 
-# backend/app/services/coach.py -> repository root
-_PLAYBOOK = Path(__file__).resolve().parents[3] / "coach.md"
+# ``coach.md`` sits at the root of whatever tree this package ships in: beside
+# ``app/`` now that the backend is its own repository, and one level higher in
+# the older layout where it lived in ``backend/``. Both are tried, so the file
+# can move without this line having to move with it.
+_PLAYBOOK_CANDIDATES = tuple(
+    parent / "coach.md" for parent in Path(__file__).resolve().parents[2:4]
+)
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 REFUSAL_GUIDANCE = """You only discuss this trader's own journal: their logged
@@ -61,12 +67,16 @@ they made. Never moralise, never guess, and never predict a price."""
 @lru_cache
 def playbook() -> str:
     """The coach's voice. Cached: it is the same for every request."""
-    try:
-        text = _HTML_COMMENT.sub("", _PLAYBOOK.read_text(encoding="utf-8")).strip()
-    except OSError:
-        logger.warning("coach.md could not be read; using the built-in voice.")
-        return FALLBACK_VOICE
-    return text or FALLBACK_VOICE
+    for candidate in _PLAYBOOK_CANDIDATES:
+        try:
+            text = _HTML_COMMENT.sub("", candidate.read_text(encoding="utf-8")).strip()
+        except OSError:
+            continue
+        if text:
+            return text
+
+    logger.warning("coach.md could not be read; using the built-in voice.")
+    return FALLBACK_VOICE
 
 
 def _money(value: float) -> str:

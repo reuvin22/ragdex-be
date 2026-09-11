@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -34,8 +34,14 @@ class Settings(BaseSettings):
     # Explicit allowlists, never "*": a credentialed request with a wildcard
     # origin is rejected by browsers anyway, and a wildcard host invites
     # Host-header poisoning behind a proxy.
-    cors_origins: list[str] = Field(default_factory=list)
-    allowed_hosts: list[str] = Field(default_factory=lambda: ["*"])
+    # ``NoDecode`` because pydantic-settings JSON-decodes a list field inside
+    # the environment source, before any validator runs — so without it a
+    # comma-separated value fails to parse and ``_split_csv`` below is never
+    # reached, whatever it says it accepts.
+    cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["*"]
+    )
 
     # -- Firebase ----------------------------------------------------------
     # The full service-account JSON on one line. It is a credential with

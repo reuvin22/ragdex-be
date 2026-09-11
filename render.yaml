@@ -1,0 +1,70 @@
+# Render Blueprint. Point Render at this repository (New > Blueprint) and it
+# creates the service described here; the values marked `sync: false` are left
+# blank for you to fill in the dashboard, because they are secrets or depend on
+# where the front end ended up.
+#
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: ragdex-api
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # /health, not /ready. Readiness returns 503 when Firestore is briefly
+    # unreachable, which is the correct answer to "should you send me traffic"
+    # and the wrong one to "is this instance alive" — Render restarts on a
+    # failing health check, and restarting does not fix Firestore.
+    healthCheckPath: /health
+
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+
+      # The host allowlist TrustedHostMiddleware enforces. Correct the first
+      # entry if Render appended a suffix to the service name; the wildcard
+      # covers that case and the PR preview hosts, and localhost is here for
+      # the platform's own health check, which does not arrive over the public
+      # hostname. If a deploy is ever marked unhealthy with 400s in the log,
+      # this is the line that did it.
+      - key: ALLOWED_HOSTS
+        value: ragdex-api.onrender.com,*.onrender.com,localhost,127.0.0.1
+
+      # The web app's exact origin(s), comma-separated, scheme included —
+      # e.g. https://ragdex.vercel.app. No wildcards: these requests carry
+      # credentials, and browsers reject a wildcard origin on those anyway.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # The whole service account JSON on one line. Render has no Application
+      # Default Credentials, so unlike Cloud Run this cannot be left unset —
+      # the app calls init_firebase() at startup and a missing credential
+      # fails the deploy rather than the first request. Treat it as a
+      # password: it has full access to the Firebase project.
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+
+      # Powers the coach and the behavioural leak card. Without these, those
+      # two routes are the only thing that stops working.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: meta-llama/llama-3.2-3b-instruct
+
+      # Limits. The rate limiter is in-process, so these are per instance —
+      # which is exact at one instance and approximate the moment you scale.
+      # More than one replica means moving the limiter to Redis.
+      - key: MAX_REQUEST_BYTES
+        value: "262144"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: COACH_RATE_LIMIT_PER_MINUTE
+        value: "12"

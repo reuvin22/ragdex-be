@@ -97,7 +97,15 @@ def test_overnight_gap_is_not_counted_as_reentry() -> None:
     summary = summarise(
         [
             trade(id="a", net_pl=Decimal("-100"), entry_at=BASE),
-            trade(id="b", net_pl=Decimal("20"), entry_at=BASE + timedelta(hours=20)),
+            # The exit has to move with the entry: the helper's default exit is
+            # 30 minutes after BASE, which lands before an entry 20 hours later
+            # and is rejected by the schema before summarise() ever sees it.
+            trade(
+                id="b",
+                net_pl=Decimal("20"),
+                entry_at=BASE + timedelta(hours=20),
+                exit_at=BASE + timedelta(hours=20, minutes=30),
+            ),
         ]
     )
     assert summary.after_loss.count == 1

@@ -1,19 +1,22 @@
-# Build from the REPOSITORY ROOT, not from backend/:
+# Build from this directory, which is the repository root:
 #
-#   docker build -f backend/Dockerfile -t ragdex-api .
+#   docker build -t ragdex-api .
 #
-# The context has to include coach.md, which lives at the root and is the
-# coach's voice at runtime. A Dockerfile cannot COPY above its context, so the
-# context is the root and every path below is written from there.
+# Everything the runtime needs lives here, including coach.md — the coach's
+# voice, read at request time. It used to sit in the parent repository; a
+# service that cannot be built from its own checkout cannot be deployed from
+# one either.
 
 FROM python:3.12-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /build
-COPY backend/pyproject.toml ./
-# Resolve into a virtualenv that is copied wholesale into the runtime image,
-# so the compiler and headers never reach production.
+# Only the manifest: this stage exists to resolve dependencies into a
+# virtualenv that is copied wholesale into the runtime image, so the compiler
+# and headers never reach production. The source is copied in below instead,
+# which also means a code change does not invalidate this layer.
+COPY pyproject.toml ./
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
  && /opt/venv/bin/pip install .
@@ -26,22 +29,31 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8000
 
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --chown=app:app backend/app ./app
-# app/services/coach.py resolves this as parents[3]/coach.md, which from
-# /app/app/services/ is /coach.md.
-COPY --chown=app:app coach.md /coach.md
+COPY --chown=app:app app ./app
+# app/services/coach.py looks for this beside the package, which from
+# /app/app/services/ is /app/coach.md.
+COPY --chown=app:app coach.md ./coach.md
 
 USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"
+  CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('PORT','8000')}/health\").status==200 else 1)"
 
+# Shell form, because the port is the platform's to choose and Render supplies
+# it as $PORT. `exec` keeps uvicorn as PID 1 so it receives SIGTERM directly
+# and shuts down gracefully instead of being killed after the grace period.
+#
 # No --reload, and no --workers: process count belongs to the orchestrator,
 # which knows how much CPU the container was actually given.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD exec uvicorn app.main:app \
+      --host 0.0.0.0 \
+      --port "${PORT:-8000}" \
+      --proxy-headers \
+      --forwarded-allow-ips "*"
