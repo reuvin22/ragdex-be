@@ -99,27 +99,18 @@ class Settings(BaseSettings):
     session_cookie_domain: str | None = None
 
     # -- Google sign-in ----------------------------------------------------
-    # The OAuth handshake needs a browser, but it does not need the browser to
-    # hold anything: the client is sent to Google and comes back here, and this
-    # service does the code exchange with the secret.
-    google_client_id: str | None = None
-    google_client_secret: SecretStr | None = None
-
-    # Where to send the browser once sign-in finishes. Also the base for links
-    # inside emails.
-    app_url: str = "https://trades-sable-mu.vercel.app"
-
-    # The origin a *browser* uses to reach this API — which is the web app's
-    # own origin, because /api is proxied there (vercel.json in production,
-    # the dev server's proxy locally). Not this service's Render hostname.
+    # Nothing here. The browser runs the Google popup through the Firebase
+    # SDK and posts the resulting ID token to /auth/google, which verifies it
+    # with the Admin SDK credential this service already holds.
     #
-    # That distinction is the whole ballgame for Google sign-in. The OAuth
-    # callback arrives as a top-level navigation, so whichever origin it lands
-    # on is the origin the session cookie gets scoped to. Point this at the
-    # backend's own hostname and the cookie is set on a site the app is not
-    # served from: the browser then refuses to send it back, and sign-in
-    # silently fails to stick with no error anywhere.
-    api_public_url: str = "https://trades-sable-mu.vercel.app"
+    # The OAuth client id, secret and redirect URI that used to live here are
+    # gone with the server-side redirect flow. Firebase provisions and owns
+    # its own OAuth client, which is what removes the redirect-URI and
+    # cross-project mismatches entirely.
+
+    # Where the browser is sent after sign-in, and the base for links inside
+    # emails.
+    app_url: str = "https://trades-sable-mu.vercel.app"
 
     # -- Email -------------------------------------------------------------
     # Brevo sends the branded verification email. Firebase's own template is

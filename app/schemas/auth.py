@@ -27,6 +27,19 @@ class Registration(Credentials):
     display_name: str = Field(default="", max_length=80)
 
 
+class GoogleSignIn(BaseModel):
+    """A Firebase ID token from the browser SDK's Google popup.
+
+    Just the token. Not an email, not a uid, not a display name — every one of
+    those is read from the token's verified claims, because a caller who could
+    supply them could sign in as anybody.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str = Field(min_length=1, max_length=8192)
+
+
 class PasswordResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -9,7 +9,18 @@ venv/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+
 # Service account keys must never be committed, under any name.
+#
+# The narrow patterns below were not enough once: "trading.json" was listed
+# while the real file was called "trading-journal.json", which sat untracked
+# and one `git add -A` away from being published. A service account is a
+# full-access credential — there is no undoing that. So the rules are broad
+# now, and the project's own files are allowlisted back in by name.
 *serviceAccount*.json
 *firebase-adminsdk*.json
 trading.json
+trading-journal.json
+*credentials*.json
+*-key.json
+*.pem

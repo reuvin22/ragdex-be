@@ -13,17 +13,17 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Response, status
 from firebase_admin import auth as firebase_auth
 
 from app.api.deps import AppSettings, MaybeUser, ReadUser
 from app.core import session as session_store
 from app.core.errors import AppError
-from app.core.security import CurrentUser, anonymous_rate_limit
+from app.core.security import AuthError, CurrentUser, anonymous_rate_limit
 from app.repositories import profiles as profile_repo
 from app.schemas.auth import (
     Credentials,
+    GoogleSignIn,
     PasswordResetRequest,
     Registration,
     Session,
@@ -32,7 +32,7 @@ from app.schemas.auth import (
 )
 from app.schemas.common import ErrorResponse, Message
 from app.services import email as email_service
-from app.services import google_oauth, identity
+from app.services import identity
 
 logger = logging.getLogger(__name__)
 
@@ -220,76 +220,56 @@ async def password_reset(
 
 # ----------------------------------------------------------------- Google
 
-@router.get(
-    "/google/start",
-    summary="Begin Google sign-in",
+@router.post(
+    "/google",
+    response_model=Session,
+    summary="Sign in with a Google account",
     dependencies=[anonymous_rate_limit("google", 20)],
 )
-async def google_start(settings: AppSettings) -> RedirectResponse:
-    """Send the browser to Google.
+async def google_sign_in(
+    payload: GoogleSignIn, response: Response, settings: AppSettings
+) -> Session:
+    """Exchange a Firebase ID token for a session cookie.
 
-    The page that calls this holds no client id and no secret — it navigates
-    here, and this service builds the authorize URL.
+    The browser runs the Google popup through the Firebase SDK and arrives here
+    with an ID token. This service verifies it with the Admin SDK — so the
+    token's signature, audience and expiry are all checked against the Firebase
+    project, and a token minted for some other project is refused — then mints
+    the same HttpOnly cookie every other sign-in produces.
+
+    Deliberately not the OAuth redirect dance this replaced. Firebase's SDK
+    uses the OAuth client it provisions itself, which removes the entire class
+    of redirect-URI and cross-project mismatches: there is no client id here,
+    no secret, and no callback to register.
+
+    What the browser holds is still only a cookie it cannot read. The ID token
+    lives for the duration of this request and is then dropped.
     """
-    state = google_oauth.make_state(settings)
-    return RedirectResponse(
-        google_oauth.authorize_url(state, settings),
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    token = payload.id_token
 
-
-@router.get("/google/callback", summary="Finish Google sign-in", include_in_schema=False)
-async def google_callback(
-    settings: AppSettings,
-    state: str = Query(default=""),
-    code: str = Query(default=""),
-    error: str = Query(default=""),
-) -> RedirectResponse:
-    """Where Google returns the browser.
-
-    Answers with a redirect in every case, success or failure: this URL is
-    reached by a navigation, not by fetch, so the only way to report anything
-    is to put it in the query string of the page we send them back to.
-    """
-    app_url = settings.app_url.rstrip("/")
-
-    def back(reason: str | None = None) -> RedirectResponse:
-        target = f"{app_url}/#/login"
-        if reason:
-            target = f"{app_url}/?auth_error={reason}#/login"
-        return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
-
-    if error or not code:
-        # The user pressed cancel, or Google refused. Neither is our failure.
-        return back("cancelled")
-
-    # Named so a failure says which of the three steps it died in. Without
-    # this the log reads "google sign-in failed" for a bad state, a refused
-    # code exchange and an unconfigured Identity Toolkit alike, which are
-    # three very different problems to go and fix.
-    stage = "state"
     try:
-        google_oauth.check_state(state, settings)
+        # check_revoked so a signed-out or disabled account cannot present an
+        # ID token it kept. Costs a lookup; worth it on the one route that
+        # turns a token into a session.
+        claims = firebase_auth.verify_id_token(token, check_revoked=True)
+    except firebase_auth.UserDisabledError as exc:
+        raise AppError(
+            "This account is disabled.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="account_disabled",
+        ) from exc
+    except Exception as exc:
+        # The reason goes to the log, not the caller: telling someone probing
+        # whether a token was expired, malformed or wrongly signed helps only
+        # them.
+        logger.warning("Google ID token rejected: %s", type(exc).__name__)
+        raise AuthError("Could not verify that Google sign-in.") from exc
 
-        stage = "code_exchange"
-        id_token = await google_oauth.exchange_code(code, settings)
-
-        stage = "firebase_sign_in"
-        # The configured callback, not request.base_url. Starlette derives
-        # base_url from forwarded headers, and behind a proxy that does not
-        # reach it — on Render it comes out http:// — while Identity Toolkit
-        # validates this field. Deriving it from settings makes it the same
-        # string we sent Google, which is what it is supposed to be.
-        result = await identity.sign_in_with_google(
-            id_token, google_oauth.redirect_uri(settings), settings
-        )
-    except AppError as exc:
-        logger.warning("Google sign-in failed at %s: %s", stage, exc.code)
-        # "Not configured" is a deployment mistake, not a secret — saying so
-        # turns an unactionable "try again" into something the person running
-        # this can actually go and fix. Everything else stays generic.
-        return back("unconfigured" if exc.code == "not_configured" else "failed")
-
-    response = back()
-    _start_session(response, result, settings)
-    return response
+    result = identity.IdentityResult(
+        uid=str(claims["uid"]),
+        email=str(claims.get("email", "")),
+        id_token=token,
+        display_name=str(claims.get("name", "")),
+        photo_url=str(claims.get("picture", "")),
+    )
+    return Session(user=_start_session(response, result, settings))
