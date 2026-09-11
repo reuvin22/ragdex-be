@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     app_url: str = "http://localhost:5173"
     # This service's own public origin, which is what Google redirects back to
     # and must match the OAuth client's registered URI exactly.
-    api_public_url: str = "http://localhost:8000"
+    api_public_url: str = "https://ragdex-be.onrender.com"
 
     # -- Email -------------------------------------------------------------
     # Brevo sends the branded verification email. Firebase's own template is
