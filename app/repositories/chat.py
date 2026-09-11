@@ -282,3 +282,27 @@ def presence_of(uids: list[str]) -> set[str]:
             online.add(doc.id)
 
     return online
+
+
+# ------------------------------------------------------------------ watching
+
+
+def watch_threads(me: str, on_change: Any) -> Any:
+    """Subscribe to every conversation this person is in.
+
+    One listener covers all of them: a thread document carries ``lastAt`` and
+    ``reads``, and both a new message and a read receipt write to it — so the
+    document changing is exactly the signal "something happened in here", with
+    no listener per conversation and no collection-group query.
+
+    ``on_change`` is called from a gRPC background thread, not the event loop.
+    Whatever it does has to be thread-safe; the route hands it a queue.
+    """
+    query = _threads().where(filter=FieldFilter("members", "array_contains", me))
+    return query.on_snapshot(on_change)
+
+
+def other_member(data: dict[str, Any], me: str) -> str | None:
+    """Who the other participant is, from a raw thread document."""
+    others = [uid for uid in data.get("members", []) if uid != me]
+    return others[0] if len(others) == 1 else None

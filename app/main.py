@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.router import api_router
@@ -25,6 +24,7 @@ from app.core.middleware import (
     BodySizeLimitMiddleware,
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
+    SelectiveGZipMiddleware,
 )
 from app.db.firestore import init_firebase
 
@@ -63,7 +63,11 @@ def create_app() -> FastAPI:
     # Order matters, and it reads bottom-up: the last added is the outermost.
     # Request context must wrap everything so even a rejected request is
     # logged with an id.
-    app.add_middleware(GZipMiddleware, minimum_size=1_000)
+    app.add_middleware(
+        SelectiveGZipMiddleware,
+        minimum_size=1_000,
+        exclude_prefixes=(f"{settings.api_v1_prefix}/chat/stream",),
+    )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
     app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
 

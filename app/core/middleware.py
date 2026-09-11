@@ -13,6 +13,7 @@ import uuid
 
 from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.status import HTTP_413_REQUEST_ENTITY_TOO_LARGE
@@ -174,3 +175,31 @@ class BodySizeLimitMiddleware:
             },
         )
         await response(scope, receive, send)
+
+
+class SelectiveGZipMiddleware:
+    """GZip, except on paths that stream.
+
+    ``GZipMiddleware`` wraps a streaming response and compresses it in blocks,
+    which is right for a large JSON body and wrong for server-sent events: the
+    events sit in the compressor's buffer instead of reaching the browser, and
+    a live stream silently behaves like a slow one. Excluding the stream path
+    is simpler and more predictable than trying to make gzip flush per event —
+    an SSE line is a few dozen bytes, so there is nothing worth compressing.
+    """
+
+    def __init__(
+        self, app: ASGIApp, *, minimum_size: int, exclude_prefixes: tuple[str, ...]
+    ) -> None:
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=minimum_size)
+        self.exclude_prefixes = exclude_prefixes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and str(scope.get("path", "")).startswith(
+            self.exclude_prefixes
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        await self.gzip(scope, receive, send)
