@@ -44,11 +44,18 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
-      # The whole service account JSON on one line. Render has no Application
-      # Default Credentials, so unlike Cloud Run this cannot be left unset —
-      # the app calls init_firebase() at startup and a missing credential
-      # fails the deploy rather than the first request. Treat it as a
-      # password: it has full access to the Firebase project.
+      # Firebase credentials. PREFER a Secret File over this variable:
+      # Dashboard > Secret Files > add trading-journal.json. Render mounts it
+      # at /etc/secrets/trading-journal.json and the app finds it there with
+      # no configuration (see SERVICE_ACCOUNT_PATHS in app/core/config.py).
+      #
+      # A multi-kilobyte private key pasted into an env var is easy to
+      # truncate and easy to mangle by losing its newline escapes. Set this
+      # only if you cannot use a Secret File; leave it unset otherwise.
+      #
+      # Render has no Application Default Credentials, so one of the two is
+      # required: without either, startup now fails loudly rather than
+      # serving a healthy-looking service whose every Firebase call errors.
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
 

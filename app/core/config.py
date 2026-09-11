@@ -10,10 +10,26 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Where a service account file is looked for when nothing names one explicitly.
+#
+# Render mounts a Secret File at /etc/secrets/<filename> and also at the app
+# root, so uploading trading-journal.json in the dashboard is all that is
+# needed — no extra environment variable, nothing to keep in step. The local
+# entries are for running the service on a workstation.
+#
+# These are read, never written, and the filenames are matched by .gitignore.
+SERVICE_ACCOUNT_PATHS = (
+    Path("/etc/secrets/trading-journal.json"),
+    Path("/etc/secrets/serviceAccount.json"),
+    Path("trading-journal.json"),
+    Path("serviceAccount.json"),
+)
 
 
 class Settings(BaseSettings):
@@ -48,6 +64,18 @@ class Settings(BaseSettings):
     # complete access to the project, so it lives only in the environment and
     # is never written to disk or logged.
     firebase_service_account: SecretStr | None = None
+
+    # A path to that same JSON, for hosts that mount secrets as files rather
+    # than environment variables. On Render this is a "Secret File": upload
+    # trading-journal.json in the dashboard and it appears at
+    # /etc/secrets/trading-journal.json.
+    #
+    # Preferred over the inline variable when both are set. A multi-kilobyte
+    # private key pasted into an env var is easy to truncate, easy to mangle by
+    # losing the "\n" escapes, and shows up in any process listing that dumps
+    # the environment; a file has none of those problems.
+    firebase_service_account_file: str | None = None
+
     firebase_project_id: str | None = None
 
     # The Web API key, used to reach Identity Toolkit for password sign-in and
@@ -131,16 +159,45 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    def _service_account_source(self) -> tuple[str, str] | None:
+        """Where the credential is coming from, as (description, raw JSON).
+
+        Order matters. An explicitly configured path wins, then the inline
+        variable, then the well-known locations — so a deliberate setting is
+        never quietly overridden by a file that happens to be lying around.
+        """
+        if self.firebase_service_account_file:
+            path = Path(self.firebase_service_account_file)
+            if not path.is_file():
+                raise ValueError(
+                    f"FIREBASE_SERVICE_ACCOUNT_FILE points at {path}, "
+                    "which does not exist."
+                )
+            return (str(path), path.read_text(encoding="utf-8"))
+
+        if self.firebase_service_account is not None:
+            return (
+                "FIREBASE_SERVICE_ACCOUNT",
+                self.firebase_service_account.get_secret_value(),
+            )
+
+        for path in SERVICE_ACCOUNT_PATHS:
+            if path.is_file():
+                return (str(path), path.read_text(encoding="utf-8"))
+
+        return None
+
     def service_account_info(self) -> dict[str, Any] | None:
         """The parsed service account, or None when running without Firebase."""
-        if self.firebase_service_account is None:
+        source = self._service_account_source()
+        if source is None:
             return None
 
-        raw = self.firebase_service_account.get_secret_value()
+        where, raw = source
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:  # pragma: no cover - config error
-            raise ValueError("FIREBASE_SERVICE_ACCOUNT is not valid JSON.") from exc
+            raise ValueError(f"{where} is not valid JSON.") from exc
 
         missing = [
             field
@@ -148,9 +205,7 @@ class Settings(BaseSettings):
             if not parsed.get(field)
         ]
         if missing:
-            raise ValueError(
-                "FIREBASE_SERVICE_ACCOUNT is missing: " + ", ".join(missing)
-            )
+            raise ValueError(f"{where} is missing: " + ", ".join(missing))
         return dict(parsed)
 
 

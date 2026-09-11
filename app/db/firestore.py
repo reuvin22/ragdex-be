@@ -12,10 +12,12 @@ from functools import lru_cache
 from typing import Any
 
 import firebase_admin
+import google.auth
 from firebase_admin import credentials, firestore
+from google.auth.exceptions import DefaultCredentialsError
 from google.cloud.firestore_v1 import Client
 
-from app.core.config import get_settings
+from app.core.config import SERVICE_ACCOUNT_PATHS, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,29 @@ def init_firebase() -> None:
     if info is None:
         # Application Default Credentials: the right path on Cloud Run or GKE,
         # where a service account is attached to the workload instead.
+        #
+        # Anywhere else this is a misconfiguration, and it used to be a silent
+        # one: the app started, /health said "ok", and every call that actually
+        # touched Firebase failed later with DefaultCredentialsError. Sign-in
+        # got all the way through Google and then died minting the session
+        # cookie, which made it look like an OAuth problem for hours.
+        #
+        # So ask for the credentials rather than assume they resolve.
+        # initialize_app() succeeds with none and defers the failure to the
+        # first call, which is exactly how this stayed hidden.
+        try:
+            google.auth.default()
+        except DefaultCredentialsError as exc:
+            raise RuntimeError(
+                "No Firebase credentials. Provide them one of three ways:\n"
+                "  - a service account file at one of "
+                f"{', '.join(str(p) for p in SERVICE_ACCOUNT_PATHS)} "
+                "(on Render: upload it under Secret Files)\n"
+                "  - FIREBASE_SERVICE_ACCOUNT_FILE, a path to that JSON\n"
+                "  - FIREBASE_SERVICE_ACCOUNT, the same JSON on one line\n"
+                "  - Application Default Credentials, on Cloud Run or GKE"
+            ) from exc
+
         logger.info("No service account configured; using default credentials.")
         firebase_admin.initialize_app()
         return
