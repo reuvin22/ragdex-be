@@ -136,13 +136,24 @@ async def login(
 
 
 @router.post("/logout", response_model=Message, summary="Sign out")
-async def logout(user: ReadUser, response: Response, settings: AppSettings) -> Message:
-    """Clears the cookie and revokes every session this account has.
+async def logout(user: MaybeUser, response: Response, settings: AppSettings) -> Message:
+    """Clears the cookie, and revokes every session when we know whose it is.
 
-    Revoking is the stronger behaviour and the one worth having: a session
-    someone wants ended is usually one they have lost control of.
+    Deliberately does not require a valid session. Demanding one made signing
+    out impossible in exactly the situations where it matters most: an expired
+    cookie, a revoked one, an account disabled mid-session. The client cannot
+    clear an HttpOnly cookie itself, so a 401 here left the browser holding a
+    dead cookie with no way to drop it.
+
+    So this always succeeds. Clearing is unconditional; revoking needs a uid
+    and is skipped when there is none — there is nothing to revoke for a caller
+    we cannot identify, and nothing is leaked by saying so.
     """
-    session_store.revoke(user.uid)
+    if user is not None:
+        # The stronger behaviour and the one worth having: a session someone
+        # wants ended is usually one they have lost control of, so end them all.
+        session_store.revoke(user.uid)
+
     session_store.clear(response, settings)
     return Message(message="Signed out.")
 

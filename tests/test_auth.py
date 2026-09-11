@@ -7,6 +7,8 @@ anybody who asks.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from app.core.errors import AppError
 from app.core.security import get_current_user
@@ -29,11 +31,19 @@ def test_session_answers_with_no_user_when_signed_out(app) -> None:
     assert response.json() == {"user": None}
 
 
-def test_logout_requires_a_session(app) -> None:
+def test_logout_works_without_a_valid_session(app) -> None:
+    """Signing out must never need a working session.
+
+    Requiring one made sign-out impossible exactly when it mattered — an
+    expired or revoked cookie — and the client cannot clear an HttpOnly cookie
+    itself, so a 401 left the browser holding a dead cookie with no way out.
+    """
     with TestClient(app) as client:
         response = client.post("/api/v1/auth/logout")
 
-    assert response.status_code == 401
+    assert response.status_code == 200
+    # The clearing header goes out regardless of who, or whether, the caller is.
+    assert "set-cookie" in {key.lower() for key in response.headers}
 
 
 def test_a_wrong_password_and_an_unknown_account_look_identical() -> None:
@@ -98,12 +108,34 @@ def test_a_verified_session_is_still_required_to_send_verification(app) -> None:
     assert response.status_code == 401
 
 
-def test_the_session_dependency_is_what_routes_depend_on(app, verified_user) -> None:
+def test_the_session_dependency_is_what_routes_depend_on(
+    app, verified_user, monkeypatch
+) -> None:
     """A sanity check on the wiring: overriding identity reaches the routes, so
-    the rest of the suite's overrides mean what they claim."""
+    the rest of the suite's overrides mean what they claim.
+
+    Pointed at verify-email rather than logout, because logout no longer
+    refuses anyone — it would pass this whether the override worked or not.
+    The account lookup is stubbed: this suite never reaches Firebase, and an
+    already-verified address short-circuits before any mail is sent.
+    """
+
+    class AlreadyVerified:
+        uid = "trader-1"
+        email = "trader@example.com"
+        email_verified = True
+        display_name = ""
+        photo_url = ""
+        provider_data: ClassVar[list[object]] = []
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.firebase_auth.get_user",
+        lambda uid: AlreadyVerified(),
+    )
     app.dependency_overrides[get_current_user] = lambda: verified_user
 
     with TestClient(app) as client:
-        response = client.post("/api/v1/auth/logout")
+        response = client.post("/api/v1/auth/verify-email")
 
-    assert response.status_code != 401
+    assert response.status_code == 200
+    assert response.json()["status"] == "already-verified"
