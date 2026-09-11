@@ -95,6 +95,11 @@ def redirect_uri(settings: Settings) -> str:
 
     Must match a redirect URI registered on the OAuth client exactly, including
     scheme and any trailing path.
+
+    Built from ``api_public_url``, which is the *app's* origin rather than this
+    service's. The callback is a navigation, and the origin it lands on is the
+    origin the session cookie is scoped to — so it has to be the origin the app
+    is served from, reaching this service through the proxy.
     """
     base = settings.api_public_url.rstrip("/")
     return f"{base}{settings.api_v1_prefix}/auth/google/callback"

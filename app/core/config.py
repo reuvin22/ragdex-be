@@ -79,10 +79,19 @@ class Settings(BaseSettings):
 
     # Where to send the browser once sign-in finishes. Also the base for links
     # inside emails.
-    app_url: str = "http://trades-sable-mu.vercel.app/"
-    # This service's own public origin, which is what Google redirects back to
-    # and must match the OAuth client's registered URI exactly.
-    api_public_url: str = "https://ragdex-be.onrender.com"
+    app_url: str = "https://trades-sable-mu.vercel.app"
+
+    # The origin a *browser* uses to reach this API — which is the web app's
+    # own origin, because /api is proxied there (vercel.json in production,
+    # the dev server's proxy locally). Not this service's Render hostname.
+    #
+    # That distinction is the whole ballgame for Google sign-in. The OAuth
+    # callback arrives as a top-level navigation, so whichever origin it lands
+    # on is the origin the session cookie gets scoped to. Point this at the
+    # backend's own hostname and the cookie is set on a site the app is not
+    # served from: the browser then refuses to send it back, and sign-in
+    # silently fails to stick with no error anywhere.
+    api_public_url: str = "https://trades-sable-mu.vercel.app"
 
     # -- Email -------------------------------------------------------------
     # Brevo sends the branded verification email. Firebase's own template is

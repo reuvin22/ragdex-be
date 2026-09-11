@@ -61,14 +61,21 @@ services:
 
       # ---------------------------------------------------------------- auth
       #
-      # This service's own public origin. Written out literally rather than
-      # derived from Render's hostname on purpose: it builds the Google
-      # redirect URI, which has to match what is registered on the OAuth
-      # client character for character. A value that can change by itself is
-      # the wrong kind of value here. Correct it if Render appended a suffix
-      # to the service name.
+      # The origin a browser uses to reach this API, which is the WEB APP's
+      # origin — not this service's Render hostname. /api is proxied there by
+      # the rewrite in the client's vercel.json.
+      #
+      # Counter-intuitive, and load-bearing. It builds the Google redirect
+      # URI, and that callback arrives as a navigation: whichever origin it
+      # lands on is the origin the session cookie is scoped to. Set this to
+      # the Render hostname and the cookie lands on a site the app is not
+      # served from, so sign-in completes and then does not stick — with
+      # nothing in any log to say why.
+      #
+      # Same value as APP_URL. Both are set separately because they answer
+      # different questions and could diverge behind a different proxy setup.
       - key: API_PUBLIC_URL
-        value: https://ragdex-be.onrender.com
+        sync: false
 
       # Where the browser is sent after sign-in, and the base for links inside
       # emails. The web app's origin, e.g. https://ragdex.vercel.app — get
