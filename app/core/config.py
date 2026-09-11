@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     # Where to send the browser once sign-in finishes. Also the base for links
     # inside emails.
-    app_url: str = "http://localhost:5173"
+    app_url: str = "http://trades-sable-mu.vercel.app/"
     # This service's own public origin, which is what Google redirects back to
     # and must match the OAuth client's registered URI exactly.
     api_public_url: str = "https://ragdex-be.onrender.com"
