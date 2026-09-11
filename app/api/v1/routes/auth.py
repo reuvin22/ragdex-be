@@ -264,15 +264,27 @@ async def google_callback(
         # The user pressed cancel, or Google refused. Neither is our failure.
         return back("cancelled")
 
+    # Named so a failure says which of the three steps it died in. Without
+    # this the log reads "google sign-in failed" for a bad state, a refused
+    # code exchange and an unconfigured Identity Toolkit alike, which are
+    # three very different problems to go and fix.
+    stage = "state"
     try:
         google_oauth.check_state(state, settings)
+
+        stage = "code_exchange"
         id_token = await google_oauth.exchange_code(code, settings)
+
+        stage = "firebase_sign_in"
         result = await identity.sign_in_with_google(
             id_token, str(request.base_url), settings
         )
     except AppError as exc:
-        logger.warning("Google sign-in failed: %s", exc.code)
-        return back("failed")
+        logger.warning("Google sign-in failed at %s: %s", stage, exc.code)
+        # "Not configured" is a deployment mistake, not a secret — saying so
+        # turns an unactionable "try again" into something the person running
+        # this can actually go and fix. Everything else stays generic.
+        return back("unconfigured" if exc.code == "not_configured" else "failed")
 
     response = back()
     _start_session(response, result, settings)
