@@ -132,7 +132,7 @@ def _translate(code: str) -> AppError:
         message, http_status, app_code = known
         return AppError(message, status_code=http_status, code=app_code)
 
-    logger.warning("Unmapped Identity Toolkit code: %s", head)
+    logger.warning("No message mapped for Identity Toolkit code %s", head)
     return UpstreamError("Sign-in is unavailable right now.")
 
 
@@ -167,6 +167,15 @@ async def _call(
         return body
 
     code = str(body.get("error", {}).get("message", "")) or "UNKNOWN"
+
+    # Logged for every failure, not only unmapped ones. Mapping a code to a
+    # readable message is what the caller needs; knowing which code it was is
+    # what whoever has to fix the deployment needs, and collapsing several
+    # causes into one message threw that away. These are Google's machine
+    # codes, not user data — safe to log, and the only thing that separates
+    # "provider disabled" from "wrong project" from "no API key".
+    logger.warning("Identity Toolkit %s rejected the request: %s", endpoint, code)
+
     raise _translate(code)
 
 
