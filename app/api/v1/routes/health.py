@@ -48,8 +48,18 @@ async def ready(response: Response) -> ReadyResponse:
     # nothing else, so it must not take the service out of rotation — but it is
     # the kind of thing that is otherwise only discovered by a user failing to
     # get in, so it belongs somewhere you can curl.
-    absent = email_service.missing_settings(get_settings())
+    settings = get_settings()
+
+    absent = email_service.missing_settings(settings)
     checks["email"] = "ok" if not absent else "missing " + ", ".join(absent)
+
+    # Same treatment: no key means the coach and the leak card answer 501 while
+    # everything else works, which is a deployment gap rather than an outage —
+    # but one that otherwise only shows up when somebody asks the coach a
+    # question and gets nothing back.
+    checks["coach"] = (
+        "ok" if settings.openrouter_api_key is not None else "missing OPENROUTER_API_KEY"
+    )
 
     if not firestore_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
