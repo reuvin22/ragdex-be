@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
     openrouter_model: str = ""
     openrouter_timeout_seconds: float = 45.0
+    # Covers the answer AND, on a reasoning model, the thinking that precedes
+    # it. The old 1,200 was set when the coach answered in three or four
+    # sentences; it now explains a change, what it buys them, and what would
+    # undo it, on top of a much longer system prompt.
+    openrouter_max_tokens: int = 2_500
 
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.

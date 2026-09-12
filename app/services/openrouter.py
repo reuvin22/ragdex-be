@@ -38,6 +38,12 @@ DEFAULT_MODELS = (
 # Some open models narrate their own thinking. None of it should reach a user.
 _REASONING = re.compile(r"<(think|reasoning)>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
+# A reply cut off by the token budget can open a reasoning block and never close
+# it. The paired pattern above needs both tags, so it does not match a truncated
+# one — and without this the trader reads the model's raw internal monologue,
+# which is a worse failure than the empty answer it would otherwise have been.
+_UNCLOSED_REASONING = re.compile(r"<(think|reasoning)>.*\Z", re.IGNORECASE | re.DOTALL)
+
 
 @dataclass(slots=True)
 class Completion:
@@ -55,7 +61,8 @@ def configured_models(settings: Settings) -> list[str]:
 
 
 def strip_reasoning(text: str) -> str:
-    return _REASONING.sub("", text).strip()
+    """Remove a model's own thinking, closed or truncated."""
+    return _UNCLOSED_REASONING.sub("", _REASONING.sub("", text)).strip()
 
 
 async def complete(
@@ -64,7 +71,7 @@ async def complete(
     settings: Settings,
     models: list[str] | None = None,
     temperature: float = 0.7,
-    max_tokens: int = 1_200,
+    max_tokens: int | None = None,
     json_object: bool = False,
 ) -> Completion:
     if settings.openrouter_api_key is None:
@@ -79,7 +86,11 @@ async def complete(
         "models": chain,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        # The reasoning models in the default chain spend tokens thinking
+        # before they write a word, and the budget covers both. Too low and the
+        # thinking finishes, the answer never starts, and what comes back is
+        # empty — which is a configuration problem that reads like a bug.
+        "max_tokens": max_tokens or settings.openrouter_max_tokens,
     }
     if json_object:
         body["response_format"] = {"type": "json_object"}
@@ -145,13 +156,51 @@ async def complete(
 
     try:
         payload = response.json()
-        choice = payload["choices"][0]["message"]["content"]
+        choice = payload["choices"][0]
+        message = choice["message"]
     except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         logger.error("Unexpected OpenRouter payload shape")
         raise UpstreamError("The coach sent something unreadable.") from exc
 
-    text = strip_reasoning(choice or "")
+    content = message.get("content") or ""
+    text = strip_reasoning(content)
+
     if not text:
+        # This used to raise with nothing logged at all, which left one opaque
+        # sentence and no way to tell a truncated answer from a model that
+        # simply said nothing. The three causes need three different fixes, so
+        # say which one it was.
+        finish = choice.get("finish_reason")
+        # Reasoning models can return their thinking in its own field and put
+        # nothing in content. It is still never shown to anyone — only counted.
+        reasoning = message.get("reasoning") or ""
+
+        if finish == "length":
+            diagnosis = (
+                "The token budget ran out before the answer began. Raise "
+                "OPENROUTER_MAX_TOKENS, or shorten the system prompt."
+            )
+        elif reasoning or content:
+            diagnosis = "The model returned only its own reasoning, never an answer."
+        else:
+            diagnosis = "The model returned an empty message."
+
+        logger.error(
+            "OpenRouter returned nothing usable: model=%s finish_reason=%s "
+            "content=%d chars reasoning=%d chars budget=%d. %s",
+            payload.get("model", chain[0]),
+            finish,
+            len(content),
+            len(reasoning),
+            body["max_tokens"],
+            diagnosis,
+        )
+
+        if finish == "length":
+            raise UpstreamError(
+                "The coach ran out of room before it could answer. Try a shorter "
+                "question."
+            )
         raise UpstreamError("The coach returned an empty answer.")
 
     return Completion(text=text, model=payload.get("model", chain[0]))
