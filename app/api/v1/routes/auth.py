@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Query, Response, status
+from fastapi.responses import RedirectResponse
 from firebase_admin import auth as firebase_auth
 
 from app.api.deps import AppSettings, MaybeUser, ReadUser
+from app.core import confirmation
 from app.core import session as session_store
 from app.core.errors import AppError
 from app.core.security import AuthError, CurrentUser, anonymous_rate_limit
@@ -43,7 +45,7 @@ router = APIRouter(
 )
 
 
-def _user_from(record: firebase_auth.UserRecord) -> SessionUser:
+def _user_from(record: firebase_auth.UserRecord, *, confirmed: bool) -> SessionUser:
     return SessionUser(
         uid=record.uid,
         email=record.email,
@@ -51,6 +53,7 @@ def _user_from(record: firebase_auth.UserRecord) -> SessionUser:
         display_name=record.display_name or "",
         photo_url=record.photo_url or "",
         providers=[entry.provider_id for entry in record.provider_data],
+        confirmed=confirmed,
     )
 
 
@@ -76,7 +79,7 @@ def _start_session(
             name=record.display_name,
         )
     )
-    return _user_from(record)
+    return _user_from(record, confirmed=profile_repo.is_confirmed(record.uid))
 
 
 @router.get("/session", response_model=Session, summary="Who am I")
@@ -94,7 +97,7 @@ async def read_session(user: MaybeUser) -> Session:
     # a cookie minted before someone confirmed their address still says
     # unverified, and the gate screen polls this to notice the change.
     record = firebase_auth.get_user(user.uid)
-    return Session(user=_user_from(record))
+    return Session(user=_user_from(record, confirmed=profile_repo.is_confirmed(user.uid)))
 
 
 @router.post(
@@ -169,10 +172,15 @@ async def send_verification(user: ReadUser, settings: AppSettings) -> Verificati
     The address comes from the account this session names, never from a body —
     otherwise this would be a way to aim mail at someone else's inbox from our
     domain.
+
+    The link is ours, not Firebase's. A Google account arrives with
+    ``email_verified`` already true, so Firebase has nothing left to verify and
+    its own link would be a no-op; confirmation has to be something this service
+    issues and this service records.
     """
     record = firebase_auth.get_user(user.uid)
 
-    if record.email_verified:
+    if profile_repo.is_confirmed(user.uid):
         return VerificationSent(status="already-verified")
     if not record.email:
         raise AppError("This account has no email address.", code="no_email")
@@ -184,15 +192,16 @@ async def send_verification(user: ReadUser, settings: AppSettings) -> Verificati
             code="not_configured",
         )
 
-    # Refuse before doing the work, so a caller on cooldown does not burn an
-    # Identity Toolkit call to be told no.
+    # Refuse before doing the work, so a caller on cooldown does not burn a
+    # send to be told no.
     email_service.check_cooldown(user.uid)
 
-    # A fresh ID token is needed to ask for the link, and minting one for our
-    # own use never puts it anywhere a browser can reach.
-    custom = firebase_auth.create_custom_token(user.uid)
-    signed_in = await identity.exchange_custom_token(custom.decode(), settings)
-    link = await identity.verification_link(signed_in, settings)
+    # Through the app's own origin, which the rewrite proxies here. A link in
+    # an email outlives the page that asked for it, so it points at the address
+    # people actually have, not this service's hostname.
+    token = confirmation.issue(user.uid, settings)
+    base = settings.app_url.rstrip("/")
+    link = f"{base}{settings.api_v1_prefix}/auth/confirm?token={token}"
 
     await email_service.send_verification(
         uid=user.uid,
@@ -202,6 +211,45 @@ async def send_verification(user: ReadUser, settings: AppSettings) -> Verificati
         settings=settings,
     )
     return VerificationSent(status="sent")
+
+
+@router.get("/confirm", summary="Confirm an email address", include_in_schema=False)
+async def confirm(
+    settings: AppSettings, token: str = Query(default="")
+) -> RedirectResponse:
+    """Where the confirmation link lands.
+
+    Reached by clicking a link in an email, so it answers with a redirect in
+    every case — there is nobody here to read JSON. The outcome rides back on a
+    query parameter for the login screen to explain.
+
+    Deliberately needs no session: the link often opens in a different browser
+    from the one that asked for it, and requiring a cookie would make those
+    clicks fail for no gain. The signature is what authorises this, and it names
+    the uid itself, so there is nothing for a caller to choose.
+    """
+    app_url = settings.app_url.rstrip("/")
+
+    try:
+        uid = confirmation.redeem(token, settings)
+    except AppError as exc:
+        logger.warning("Confirmation rejected: %s", exc.code)
+        return RedirectResponse(
+            f"{app_url}/?confirm=invalid#/login", status_code=status.HTTP_303_SEE_OTHER
+        )
+
+    profile_repo.mark_confirmed(uid)
+
+    # Mirror it onto the auth record too, so the flag that gates writes agrees
+    # with the one that gates the door.
+    try:
+        firebase_auth.update_user(uid, email_verified=True)
+    except Exception:
+        logger.warning("Could not mark %s verified on the auth record", uid)
+
+    return RedirectResponse(
+        f"{app_url}/?confirm=ok#/login", status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @router.post(

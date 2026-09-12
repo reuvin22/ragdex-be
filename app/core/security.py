@@ -85,13 +85,22 @@ async def get_optional_user(
 async def get_verified_user(
     user: CurrentUser = Depends(get_current_user),
 ) -> CurrentUser:
-    """A caller who has confirmed their email address.
+    """A caller who has confirmed their email address with us.
 
-    Mirrors the Firestore rules, which refuse writes from unverified sessions.
-    Anything that writes should depend on this rather than on
-    ``get_current_user``.
+    Anything that writes depends on this rather than on ``get_current_user``.
+
+    Checks the account record, not the token's ``email_verified`` claim. Google
+    sets that claim itself for accounts that signed in through it, so it is true
+    before anybody has clicked anything — gating on it would let a Google
+    sign-up write while the app's front door still held them back. One document
+    read, on writes only, is worth having the two gates agree.
+
+    Imported here rather than at module scope: repositories import this module
+    for ``CurrentUser``, and at the top that circle does not resolve.
     """
-    if not user.email_verified:
+    from app.repositories import profiles
+
+    if not profiles.is_confirmed(user.uid):
         raise AppError(
             "Confirm your email address first.",
             status_code=status.HTTP_403_FORBIDDEN,

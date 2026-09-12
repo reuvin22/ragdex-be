@@ -131,3 +131,30 @@ def set_plan(uid: str, plan: PlanId) -> Profile:
     reference = user_doc(uid)
     reference.set({"plan": plan, "planSince": SERVER_TIMESTAMP}, merge=True)
     return _to_profile(uid, reference.get().to_dict() or {})
+
+def is_confirmed(uid: str) -> bool:
+    """Whether this account has confirmed its email address with us.
+
+    Distinct from Firebase's email_verified, which Google sets by itself
+    for an account that signed in through it. This flag is the one the app
+    gates on, so a Google sign-in is held at the door like any other.
+    """
+    snapshot = user_doc(uid).get()
+    if not snapshot.exists:
+        return False
+    return bool((snapshot.to_dict() or {}).get("confirmedAt"))
+
+
+def mark_confirmed(uid: str) -> None:
+    """Record that the address was confirmed, now.
+
+    Written only once: a second click on the same link should not move the
+    date, because the date is a record of when it happened.
+    """
+    reference = user_doc(uid)
+    snapshot = reference.get()
+
+    if snapshot.exists and (snapshot.to_dict() or {}).get("confirmedAt"):
+        return
+
+    reference.set({"confirmedAt": SERVER_TIMESTAMP}, merge=True)

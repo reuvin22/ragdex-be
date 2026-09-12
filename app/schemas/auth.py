@@ -63,6 +63,12 @@ class SessionUser(BaseModel):
     # differently for an account that arrived through Google.
     providers: list[str] = Field(default_factory=list)
 
+    # Whether this account has confirmed its address with US, which is not the
+    # same question as email_verified. Google sets that one itself for accounts
+    # that signed in through it, so it is true before anyone has clicked
+    # anything. This is the flag the app gates on.
+    confirmed: bool = False
+
 
 class Session(BaseModel):
     """The answer to "who am I". ``user`` is null when nobody is signed in."""

@@ -132,6 +132,9 @@ def test_the_session_dependency_is_what_routes_depend_on(
         "app.api.v1.routes.auth.firebase_auth.get_user",
         lambda uid: AlreadyVerified(),
     )
+    monkeypatch.setattr(
+        "app.api.v1.routes.auth.profile_repo.is_confirmed", lambda uid: True
+    )
     app.dependency_overrides[get_current_user] = lambda: verified_user
 
     with TestClient(app) as client:
