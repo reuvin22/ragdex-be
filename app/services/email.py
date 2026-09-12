@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 import httpx
 
@@ -121,8 +122,34 @@ async def send_verification(
         raise UpstreamError("Could not send the verification email.") from exc
 
     if not response.is_success:
-        # Status only: Brevo echoes the key back in some error payloads.
-        logger.error("Brevo rejected the send: %s", response.status_code)
+        # Brevo answers failures as {"code": ..., "message": ...}. Those two
+        # fields are the diagnosis and neither carries the key, so they are
+        # logged by name rather than the body being dumped whole — an earlier
+        # version logged the status alone, which told nobody anything.
+        detail: dict[str, Any] = {}
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                detail = parsed
+        except ValueError:
+            pass
+
+        logger.error(
+            "Brevo rejected the send: HTTP %s %s — %s",
+            response.status_code,
+            str(detail.get("code", "no-code"))[:60],
+            str(detail.get("message", "no message"))[:300],
+        )
+
+        if response.status_code in (401, 403):
+            # Almost always one of two things, and neither is obvious from the
+            # status: a key that is wrong, or Brevo's "Authorised IPs" setting
+            # refusing the call because the server's address is not on the list.
+            logger.error(
+                "Check the Brevo API key, and Brevo > Security > Authorised IPs "
+                "— a restricted account refuses calls from unlisted servers."
+            )
+
         raise UpstreamError("The email provider rejected the request.")
 
     _last_sent[uid] = time.monotonic()
