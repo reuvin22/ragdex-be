@@ -107,3 +107,13 @@ def insights_collection(uid: str) -> Any:
     it describes, and nothing ever queries across accounts for it.
     """
     return profile_doc(uid).collection("insights")
+
+
+def conversation_doc(uid: str) -> Any:
+    """One trader's coach conversation.
+
+    A single document rather than a subcollection of messages: it is only ever
+    read and written whole, it is capped at a few dozen turns, and one document
+    read on page load beats a query every time.
+    """
+    return profile_doc(uid).collection("coach").document("conversation")

@@ -10,9 +10,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.deps import AppSettings, CoachRateLimit, WriteUser
+from app.api.deps import AppSettings, CoachRateLimit, ReadUser, WriteUser
+from app.repositories import conversations as conversations_repo
 from app.repositories import trades as trades_repo
-from app.schemas.coach import CoachReply, CoachRequest
+from app.schemas.coach import (
+    HISTORY_LIMIT,
+    CoachConversation,
+    CoachReply,
+    CoachRequest,
+)
 from app.schemas.common import ErrorResponse
 from app.services import coach as coach_service
 from app.services.stats import summarise
@@ -38,8 +44,12 @@ async def chat(
     trades = trades_repo.all_trades(user.uid)
     summary = summarise(trades) if trades else None
 
+    # Read here rather than accepted from the client, so the coach remembers
+    # across a refresh and cannot be told it said something it did not.
+    history = conversations_repo.load_turns(user.uid)
+
     completion = await coach_service.ask(
-        history=payload.history,
+        history=history[-HISTORY_LIMIT:],
         message=payload.message,
         summary=summary,
         language=payload.language,
@@ -47,6 +57,32 @@ async def chat(
         settings=settings,
     )
 
+    # After the model answered. A failed request leaves the stored conversation
+    # exactly as it was, so a retry does not replay a question twice.
+    conversations_repo.store_exchange(
+        user.uid, question=payload.message, answer=completion.text
+    )
+
     return CoachReply(
         reply=completion.text, model=completion.model, trade_count=len(trades)
     )
+
+
+@router.get(
+    "/conversation",
+    response_model=CoachConversation,
+    summary="The stored conversation",
+)
+def conversation(user: ReadUser) -> CoachConversation:
+    """What was said last time, so a refresh resumes instead of starting over."""
+    return CoachConversation(turns=conversations_repo.load_turns(user.uid))
+
+
+@router.delete(
+    "/conversation",
+    response_model=CoachConversation,
+    summary="Start the conversation over",
+)
+def clear_conversation(user: WriteUser) -> CoachConversation:
+    conversations_repo.clear(user.uid)
+    return CoachConversation(turns=[])
