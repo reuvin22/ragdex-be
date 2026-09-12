@@ -1,41 +1,19 @@
-"""The rules that stop one trader reading another's messages.
+"""Contact search: what one trader may learn about another.
 
-Same standing as ``test_security``: a regression here is a data breach. The
-thread id is the whole isolation mechanism — it is derived from the caller's
-uid plus the person they are addressing, and no route accepts one — so these
-tests are about that derivation being what it claims to be.
+Conversations themselves are not tested here because they are not served here —
+they live in the Realtime Database, and their boundary is database.rules.json.
+What remains on this side is the directory, which is the one place a caller can
+ask about somebody they have not met.
 """
 
 from __future__ import annotations
 
-import pytest
-from app.core.errors import AppError
-from app.repositories.chat import thread_id
+from app.core.security import get_current_user
 from app.repositories.directory import MIN_QUERY, search
-from app.schemas.chat import NewMessage
-from pydantic import ValidationError
+from fastapi.testclient import TestClient
 
 
-def test_thread_id_is_the_same_from_either_side() -> None:
-    """Both participants must derive one id, or each writes to their own copy
-    of the conversation and neither sees the other."""
-    assert thread_id("alice", "bob") == thread_id("bob", "alice")
-
-
-def test_thread_id_is_specific_to_the_pair() -> None:
-    assert thread_id("alice", "bob") != thread_id("alice", "carol")
-
-
-def test_thread_id_cannot_be_confused_by_a_prefix() -> None:
-    """A uid that is a prefix of another must not collide.
-
-    Firebase uids are fixed-length so this cannot arise today, but the id is a
-    security boundary and should not depend on that staying true.
-    """
-    assert thread_id("alice", "bob") != thread_id("alice", "bobby")
-
-
-def test_short_searches_return_nothing(monkeypatch) -> None:
+def test_short_searches_never_reach_the_database(monkeypatch) -> None:
     """A one- or two-character prefix would return an arbitrary slice of the
     user base. That is enumeration however small the page is."""
 
@@ -50,25 +28,43 @@ def test_short_searches_return_nothing(monkeypatch) -> None:
     assert MIN_QUERY == 3
 
 
-def test_an_empty_message_is_refused() -> None:
-    with pytest.raises(ValidationError):
-        NewMessage(text="   ")
+def test_the_directory_needs_a_session(app) -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/v1/chat/directory", params={"q": "someone"})
+
+    assert response.status_code == 401
 
 
-def test_an_oversized_message_is_refused() -> None:
-    with pytest.raises(ValidationError):
-        NewMessage(text="x" * 2_001)
+def test_a_chat_token_needs_a_session(app) -> None:
+    """The live connection is only as private as the thing that hands out
+    credentials for it."""
+    with TestClient(app) as client:
+        response = client.get("/api/v1/chat/token")
+
+    assert response.status_code == 401
 
 
-def test_a_message_carries_nothing_but_text() -> None:
-    """Sender and timestamp are the server's. A client that could set either
-    could forge a message from the person it is talking to."""
-    with pytest.raises(ValidationError):
-        NewMessage(text="hello", sender="someone-else")  # type: ignore[call-arg]
+def test_a_chat_token_is_only_ever_for_the_caller(
+    app, verified_user, monkeypatch
+) -> None:
+    """No parameter, no body, nothing a client sends chooses the uid — it comes
+    from the verified session and nowhere else."""
+    minted: dict[str, str] = {}
 
+    def fake_create_custom_token(uid: str) -> bytes:
+        minted["uid"] = uid
+        return b"token-for-" + uid.encode()
 
-def test_you_cannot_open_a_conversation_with_yourself() -> None:
-    from app.repositories import chat
+    monkeypatch.setattr(
+        "app.api.v1.routes.chat.firebase_auth.create_custom_token",
+        fake_create_custom_token,
+    )
+    app.dependency_overrides[get_current_user] = lambda: verified_user
 
-    with pytest.raises(AppError):
-        chat.add_contact("alice", "alice")
+    with TestClient(app) as client:
+        # A uid in the query string is ignored: there is no parameter for it.
+        response = client.get("/api/v1/chat/token", params={"uid": "someone-else"})
+
+    assert response.status_code == 200
+    assert minted["uid"] == verified_user.uid
+    assert response.json()["token"] == f"token-for-{verified_user.uid}"
