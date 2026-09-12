@@ -168,7 +168,16 @@ def language_rule(language: str) -> str:
         f"Every sentence, including headings and any numbered points. "
         f"{not_english}"
         f"If the trader writes to you in another language, still answer in "
-        f"{language} unless they explicitly ask you to switch."
+        f"{language}. "
+        # The escape hatch this used to carry — "unless they explicitly ask you
+        # to switch" — was a promise the system could not keep. The language is
+        # pinned per request from the stored preference, so a switch the model
+        # agreed to was undone on the very next turn: ask for Korean, get one
+        # Korean reply at best and Tagalog again after. Sending them to the
+        # control that actually changes it is the honest answer.
+        f"If they ask you to reply in a different language, do not switch. "
+        f"Tell them to use the language button above the conversation, which "
+        f"changes it for good."
     )
 
 

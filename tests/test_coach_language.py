@@ -70,3 +70,18 @@ def test_the_rule_is_repeated_after_the_conversation(monkeypatch) -> None:
     assert "Spanish" in messages[-1]["content"]
     # And the trader's own question is still the last thing they said.
     assert messages[-2]["content"] == "How am I doing?"
+
+
+def test_the_rule_refuses_an_in_conversation_switch() -> None:
+    """It used to offer to switch when asked, which it could not honour.
+
+    The language is pinned per request from the stored preference, so a switch
+    agreed to in one reply was gone by the next turn — the trader asked for
+    Korean and kept getting Tagalog. The rule now declines and names the
+    control that does work.
+    """
+    rule = language_rule("Filipino")
+
+    assert "do not switch" in rule.lower()
+    assert "language button" in rule
+    assert "unless they explicitly ask you to switch" not in rule
