@@ -23,7 +23,7 @@ from pathlib import Path
 from app.core.config import Settings
 from app.schemas.coach import CoachTurn
 from app.services import openrouter
-from app.services.stats import RuleAdherence, Summary
+from app.services.stats import Bucket, RuleAdherence, Summary
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,9 @@ are the behaviour itself, already measured. Read them that way:
   results is a strategy problem. Poor compliance is an execution problem, and
   nothing about the strategy is worth discussing until it is fixed.
 - "Worst setup by money" and "worst hour of the day" are where to point when they
-  ask what to cut."""
+  ask what to cut. "Best setup" and "best hour" are the opposite and just as
+  useful — that is where their edge already lives, and a trader who is losing
+  overall usually still has one, drowned out by the noise of the losses."""
 
 RULE_ADHERENCE_GUIDANCE = """The Rule Adherence Score is how you grade a trader.
 Not their P&L — that is the scoreboard, and it moves for reasons they do not
@@ -142,6 +144,52 @@ control. This is the part they do.
   anything, just to see the number. That week of honest tagging is worth more
   than any advice you could give them instead."""
 
+WHAT_THEY_WANT = """Underneath almost everything a trader asks are five
+questions. Work out which one you are being asked and answer that.
+
+"Am I following my own rules?" — the most common, and the Rule Adherence Score
+is the answer. They wrote a plan and abandoned it under pressure; they want
+someone to hold them to it. You have read every trade they logged, not a
+handful, so be exact rather than impressionistic.
+
+"What patterns am I missing?" — they can feel a bad week without being able to
+locate it. Your advantage is reach: you can see across their whole history at
+once. Point at the specific cut that is costing money.
+
+"Why do I keep making the same mistake?" — they usually know WHAT they do and
+not what sets it off. The answer is the trigger, not the behaviour. A loss, a
+particular hour, a particular setup. Name the trigger and they can build a
+defence against it; name the behaviour again and you have told them what they
+already knew.
+
+"Is my strategy actually working?" — never answer this overall. Overall is the
+question that hides the answer. Someone can win 55% of the time in total and
+40% on one setup that is quietly eating the rest. Break it down before you
+judge it.
+
+"What should I work on?" — the single highest-cost thing, ranked by money, and
+only that one. They will want to fix everything at once, which fixes nothing.
+
+Two more things about how you work.
+
+Find where the edge already lives. Most traders who are losing overall are
+still winning in a narrow set of conditions, and they usually cannot see it
+because the losses are louder. Their best setup and best hour are in the
+figures. You do not invent an edge — you find the one already in their data and
+tell them to do more of it and less of everything else.
+
+Measure, never merely suggest. "Try to be more patient" is worth nothing. "The
+eleven trades you took straight after a loss cost you $2,871" is worth
+something, because it can be acted on and checked. Put a number on the problem
+every time the journal gives you one.
+
+And a hard limit on all of this. The cuts you have are the ones listed in the
+figures above — by setup, by hour of day, before and after a loss, and rule
+adherence. You do NOT have performance by weekday, by instrument, by market
+condition, or by position in the day's sequence. If they ask for a cut you do
+not have, say so plainly and offer the closest one you do. Never estimate it,
+and never present a number you did not read off the figures."""
+
 ANSWER_RULES = """Answer the question they actually asked. This matters more
 than every rule above it.
 
@@ -159,7 +207,13 @@ than every rule above it.
 - Not every reply needs advice. A question of fact gets an answer. Advice belongs
   where they asked for it, or where the journal makes it impossible to ignore.
 - Vary how you start. No stock opening, no formula they could predict by the
-  third message."""
+  third message.
+- Remember what they have told you. The conversation above survives between
+  visits, so anything they said about themselves — their risk limit, how they
+  trade, a rule they agreed to try, something going on around the trading — is
+  still true today and you should use it without being told again. Asking
+  someone to re-explain their own limits is how they learn you were not
+  listening."""
 
 ADVICE_SHAPE = """When you do give advice, three things have to be in it
 somewhere. This is a checklist of substance, NOT a running order and NOT a
@@ -395,21 +449,42 @@ def headline_facts(summary: Summary) -> str:
         *rule_adherence_facts(summary.rule_adherence),
     ]
 
-    if summary.by_setup:
-        worst = summary.by_setup[0]
-        lines.append(
-            f"Worst setup by money: {worst.label} — {worst.trades} trades, "
-            f"{_money(worst.net_pl)}"
-        )
-
-    if summary.by_hour:
-        worst_hour = summary.by_hour[0]
-        lines.append(
-            f"Worst hour of the day: {worst_hour.label} — {worst_hour.trades} trades, "
-            f"{_money(worst_hour.net_pl)}"
-        )
+    # Worst and best of each cut. Only the worst used to be handed over, which
+    # made it impossible to answer "where does my edge actually live" — a
+    # trader losing money overall is usually still winning somewhere, and that
+    # narrow patch is the thing worth protecting.
+    lines += _extremes("setup by money", summary.by_setup)
+    lines += _extremes("hour of the day", summary.by_hour)
 
     return "\n".join(f"- {line}" for line in lines)
+
+
+def _bucket_line(prefix: str, bucket: Bucket) -> str:
+    rate = round(bucket.wins / bucket.trades * 100) if bucket.trades else 0
+    return (
+        f"{prefix}: {bucket.label} — {bucket.trades} trades, "
+        f"{_money(bucket.net_pl)}, wins {rate}% of the time"
+    )
+
+
+def _extremes(what: str, buckets: list[Bucket]) -> list[str]:
+    """The costliest and the most profitable of one cut.
+
+    Sorted worst first, so the ends of the list are the two that matter. The
+    best is reported only when it is actually making money and is not simply
+    the worst one again — "your best hour loses the least" is not an edge and
+    should not be dressed up as one.
+    """
+    if not buckets:
+        return []
+
+    lines = [_bucket_line(f"Worst {what}", buckets[0])]
+
+    best = buckets[-1]
+    if best is not buckets[0] and best.net_pl > 0:
+        lines.append(_bucket_line(f"Best {what}", best))
+
+    return lines
 
 
 def language_rule(language: str) -> str:
@@ -506,6 +581,8 @@ This is the coaching playbook you work from. It is who you are:
 {ADVICE_SHAPE}
 
 {data}
+
+{WHAT_THEY_WANT}
 
 {ANSWER_RULES}
 

@@ -47,6 +47,26 @@ Never predict prices. Never recommend a trade. Only describe what they already
 did."""
 
 
+def _trim(value: object, limit: int) -> str:
+    """One model-written field, cut to something a narrow card can hold.
+
+    These land in a 320px rail, so the limits are real and the model does
+    overrun them — it is told "three or four words" and writes a sentence. The
+    cut falls on a word boundary with an ellipsis: a hard slice at the
+    character count ends mid-word, which reads as a rendering fault rather than
+    as a summary that was too long.
+    """
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+
+    cut = text[: limit - 1]
+    spaced = cut.rsplit(" ", 1)[0]
+    # Unless the whole thing is one unbroken run, in which case there is no
+    # word boundary to fall back to and the hard cut is all there is.
+    return f"{(spaced if len(spaced) > limit // 2 else cut).rstrip(' ,.;:')}…"
+
+
 async def detect_leak(summary: Summary, settings: Settings) -> LeakResult | None:
     """None when there is not enough history to say anything honest."""
     if summary.trade_count < MIN_TRADES_FOR_ANALYSIS:
@@ -67,9 +87,9 @@ async def detect_leak(summary: Summary, settings: Settings) -> LeakResult | None
     severity = str(payload.get("severity", "low")).lower()
 
     return LeakResult(
-        title=str(payload.get("title", "Pattern found"))[:80],
-        finding=str(payload.get("finding", ""))[:400],
-        cost_label=str(payload.get("costLabel", ""))[:60],
+        title=_trim(payload.get("title"), 80) or "Pattern found",
+        finding=_trim(payload.get("finding"), 400),
+        cost_label=_trim(payload.get("costLabel"), 60),
         severity=_severity(severity),
-        recommendation=str(payload.get("recommendation", ""))[:300],
+        recommendation=_trim(payload.get("recommendation"), 300),
     )
