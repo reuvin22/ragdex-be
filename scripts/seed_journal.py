@@ -37,7 +37,7 @@ from pathlib import Path
 # Importable when run from the repository root without installing anything.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.db.firestore import init_firebase, trades_collection
+from app.db.firestore import init_firebase
 from app.repositories import trades as repo
 from app.schemas.trade import TradeCreate
 from firebase_admin import auth as firebase_auth
@@ -178,12 +178,16 @@ def _build(rng: random.Random, days: int) -> list[TradeCreate]:
 
 
 def _clear(uid: str) -> int:
-    """Delete every trade in this journal. Batched, because a real one is big."""
+    """Delete this trader's journal, and only theirs.
+
+    Through the repository's own owned-query helper rather than a raw
+    collection scan. `journal` is flat now, so a delete loop that forgot the
+    uid filter would empty everybody's journal rather than one.
+    """
     removed = 0
-    collection = trades_collection(uid)
 
     while True:
-        page = list(collection.limit(400).stream())
+        page = list(repo._owned(uid).limit(400).stream())
         if not page:
             return removed
         for document in page:

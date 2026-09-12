@@ -1,7 +1,7 @@
 """Journal storage.
 
 Every function here takes ``uid`` as its first argument and reaches the data
-through ``trades_collection(uid)``. There is no code path that builds a query
+through ``_owned(uid)``. There is no code path that builds a query
 across accounts, which is what keeps one trader's journal out of another's
 even though the Admin SDK ignores Firestore rules.
 """
@@ -12,12 +12,17 @@ import base64
 import binascii
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
-from google.cloud.firestore_v1 import SERVER_TIMESTAMP, DocumentSnapshot, Query
+from google.cloud.firestore_v1 import (
+    SERVER_TIMESTAMP,
+    DocumentSnapshot,
+    FieldFilter,
+    Query,
+)
 
 from app.core.errors import AppError, NotFoundError
-from app.db.firestore import trades_collection
+from app.db.firestore import journal_collection
 from app.schemas.trade import Trade, TradeCreate, TradeUpdate
 
 MAX_PAGE_SIZE = 200
@@ -139,6 +144,38 @@ def _derive(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+# The uid field is written by this module and never accepted from a payload.
+# Every schema is extra="forbid" and none of them declares it, so there is no
+# request shape that could set it — but it is named here so the reason is on
+# the page rather than inferred.
+_OWNER = "uid"
+
+
+def _owned(uid: str) -> Any:
+    """The journal, narrowed to one trader.
+
+    The single place the ownership filter is written. `journal` is a flat
+    collection, so nothing about its shape stops a query spanning accounts —
+    what stops it is that every read below starts here and nowhere else.
+    """
+    return journal_collection().where(filter=FieldFilter(_OWNER, "==", uid))
+
+
+def _owned_doc(uid: str, trade_id: str) -> DocumentSnapshot:
+    """One trade, if it belongs to this trader.
+
+    A document id is guessable in a flat collection in a way it was not when
+    the journal lived under the account, so ownership is checked on read rather
+    than assumed from the path. A trade belonging to someone else reads as
+    absent, not as forbidden: which of the two it is, is not a caller's
+    business.
+    """
+    snapshot: DocumentSnapshot = journal_collection().document(trade_id).get()
+    if not snapshot.exists or (snapshot.to_dict() or {}).get(_OWNER) != uid:
+        raise NotFoundError("That trade is not in your journal.")
+    return snapshot
+
+
 def _cursor_of(snapshot: DocumentSnapshot) -> str:
     return base64.urlsafe_b64encode(snapshot.id.encode()).decode()
 
@@ -155,14 +192,19 @@ def list_trades(
 ) -> tuple[list[Trade], str | None]:
     limit = max(1, min(limit, MAX_PAGE_SIZE))
 
-    query = trades_collection(uid).order_by(
-        "createdAt", direction=Query.DESCENDING
-    ).limit(limit + 1)
+    # Needs the composite index in firestore.indexes.json: a filter on one
+    # field ordered by another is not served by Firestore's automatic
+    # single-field indexes.
+    query = (
+        _owned(uid)
+        .order_by("createdAt", direction=Query.DESCENDING)
+        .limit(limit + 1)
+    )
 
     if cursor:
-        anchor = trades_collection(uid).document(_decode_cursor(cursor)).get()
-        if not anchor.exists:
-            raise AppError("That page is no longer available.", code="bad_cursor")
+        # Through _owned_doc, so a cursor lifted from another account's page is
+        # refused rather than used as a starting point in this one.
+        anchor = _owned_doc(uid, _decode_cursor(cursor))
         query = query.start_after(anchor)
 
     snapshots = list(query.stream())
@@ -173,10 +215,7 @@ def list_trades(
 
 
 def get_trade(uid: str, trade_id: str) -> Trade:
-    snapshot = trades_collection(uid).document(trade_id).get()
-    if not snapshot.exists:
-        raise NotFoundError("That trade is not in your journal.")
-    return _to_trade(snapshot)
+    return _to_trade(_owned_doc(uid, trade_id))
 
 
 def create_trade(uid: str, payload: TradeCreate) -> Trade:
@@ -184,19 +223,18 @@ def create_trade(uid: str, payload: TradeCreate) -> Trade:
     document["createdAt"] = SERVER_TIMESTAMP
     document["updatedAt"] = SERVER_TIMESTAMP
 
-    reference = trades_collection(uid).document()
+    # Stamped here, never taken from the payload. It is what every read filters
+    # on, so a trade written without it belongs to nobody and is invisible.
+    document[_OWNER] = uid
+
+    reference = journal_collection().document()
     reference.set(document)
     return _to_trade(reference.get())
 
 
 def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
-    reference = trades_collection(uid).document(trade_id)
-
-    # Existence is checked against *this* user's subcollection, so a guessed
-    # id from another account reads as "not found" rather than as a document.
-    existing = reference.get()
-    if not existing.exists:
-        raise NotFoundError("That trade is not in your journal.")
+    existing = _owned_doc(uid, trade_id)
+    reference = existing.reference
 
     changes = _to_document(payload, partial=True)
     if not changes:
@@ -214,21 +252,20 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
     changes["updatedAt"] = SERVER_TIMESTAMP
 
     reference.update(changes)
-    return _to_trade(reference.get())
+    # cast because the Firestore stubs type DocumentReference.get() as possibly
+    # awaitable; this client is the synchronous one and never returns a future.
+    return _to_trade(cast(DocumentSnapshot, reference.get()))
 
 
 def delete_trade(uid: str, trade_id: str) -> None:
-    reference = trades_collection(uid).document(trade_id)
-    if not reference.get().exists:
-        raise NotFoundError("That trade is not in your journal.")
-    reference.delete()
+    _owned_doc(uid, trade_id).reference.delete()
 
 
 def all_trades(uid: str, *, limit: int = 300) -> list[Trade]:
     """The window the coach and the analytics read. Bounded so one very long
     journal cannot turn a request into a scan of everything."""
     query = (
-        trades_collection(uid)
+        _owned(uid)
         .order_by("createdAt", direction=Query.DESCENDING)
         .limit(min(limit, 1_000))
     )

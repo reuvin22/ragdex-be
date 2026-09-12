@@ -15,10 +15,10 @@ from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 from app.core.errors import NotFoundError
 from app.core.security import CurrentUser
-from app.db.firestore import user_doc
+from app.db.firestore import profile_doc
 from app.schemas.profile import PlanId, Profile, ProfileUpdate
 
-from . import directory
+from . import billing, directory
 
 _FIELDS = {
     "display_name": "displayName",
@@ -41,6 +41,10 @@ def _to_datetime(value: Any) -> datetime | None:
 
 
 def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
+    # Read from billings and merged in here. The wire shape is unchanged — the
+    # client still receives one profile with a plan on it — but the record of
+    # what someone pays for lives in its own collection.
+    plan, plan_since = billing.get_billing(uid)
     balance = data.get("openingBalance")
     return Profile(
         uid=uid,
@@ -55,15 +59,15 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         markets=list(data.get("markets", [])),
         bio=data.get("bio", ""),
         coach_language=data.get("coachLanguage"),
-        plan=data.get("plan", "individual"),
-        plan_since=_to_datetime(data.get("planSince")),
+        plan=plan,
+        plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),
         last_seen_at=_to_datetime(data.get("lastSeenAt")),
     )
 
 
 def get_profile(uid: str) -> Profile:
-    snapshot = user_doc(uid).get()
+    snapshot = profile_doc(uid).get()
     if not snapshot.exists:
         raise NotFoundError("No account record yet.")
     return _to_profile(uid, snapshot.to_dict() or {})
@@ -75,7 +79,7 @@ def record_sign_in(user: CurrentUser) -> Profile:
     ``createdAt`` is only ever written when absent, so its presence is what
     marks an account as already known — the same rule the web client uses.
     """
-    reference = user_doc(user.uid)
+    reference = profile_doc(user.uid)
     snapshot = reference.get()
 
     document: dict[str, Any] = {
@@ -108,7 +112,7 @@ def update_profile(uid: str, payload: ProfileUpdate) -> Profile:
         value = dumped[field]
         changes[key] = float(value) if isinstance(value, Decimal) else value
 
-    reference = user_doc(uid)
+    reference = profile_doc(uid)
     if changes:
         changes["updatedAt"] = SERVER_TIMESTAMP
         reference.set(changes, merge=True)
@@ -128,9 +132,10 @@ def update_profile(uid: str, payload: ProfileUpdate) -> Profile:
 
 
 def set_plan(uid: str, plan: PlanId) -> Profile:
-    reference = user_doc(uid)
-    reference.set({"plan": plan, "planSince": SERVER_TIMESTAMP}, merge=True)
-    return _to_profile(uid, reference.get().to_dict() or {})
+    """Change the plan. Written to billings; the profile is untouched."""
+    billing.set_plan(uid, plan)
+    return _to_profile(uid, profile_doc(uid).get().to_dict() or {})
+
 
 def is_confirmed(uid: str) -> bool:
     """Whether this account has confirmed its email address with us.
@@ -139,7 +144,7 @@ def is_confirmed(uid: str) -> bool:
     for an account that signed in through it. This flag is the one the app
     gates on, so a Google sign-in is held at the door like any other.
     """
-    snapshot = user_doc(uid).get()
+    snapshot = profile_doc(uid).get()
     if not snapshot.exists:
         return False
     return bool((snapshot.to_dict() or {}).get("confirmedAt"))
@@ -151,7 +156,7 @@ def mark_confirmed(uid: str) -> None:
     Written only once: a second click on the same link should not move the
     date, because the date is a record of when it happened.
     """
-    reference = user_doc(uid)
+    reference = profile_doc(uid)
     snapshot = reference.get()
 
     if snapshot.exists and (snapshot.to_dict() or {}).get("confirmedAt"):

@@ -21,7 +21,13 @@ from app.core.config import SERVICE_ACCOUNT_PATHS, get_settings
 
 logger = logging.getLogger(__name__)
 
-_USERS = "users"
+# Top-level collections. Flat rather than nested under an account document,
+# which is a deliberate trade: it makes every collection independently
+# queryable and exportable, and it moves tenant isolation from the shape of a
+# path to a filter that has to be applied. See _owned() in repositories/trades.
+_PROFILES = "user-profiles"
+_JOURNAL = "journal"
+_BILLINGS = "billings"
 
 
 def init_firebase() -> None:
@@ -74,17 +80,30 @@ def get_client() -> Client:
     return client
 
 
-def user_doc(uid: str) -> Any:
-    """The account record for one trader."""
-    return get_client().collection(_USERS).document(uid)
+def profile_doc(uid: str) -> Any:
+    """The account record for one trader, in user-profiles."""
+    return get_client().collection(_PROFILES).document(uid)
 
 
-def trades_collection(uid: str) -> Any:
-    """A trader's journal. Always reached through their own document, so a
-    query can never be built that spans two accounts."""
-    return user_doc(uid).collection("trades")
+def journal_collection() -> Any:
+    """Every trade, from every account.
+
+    Flat, so it carries a uid field and every query must filter on it. Nothing
+    should call this directly except the journal repository, which owns the one
+    helper that applies that filter — reach for repositories.trades instead.
+    """
+    return get_client().collection(_JOURNAL)
+
+
+def billing_doc(uid: str) -> Any:
+    """One trader's plan. A document per account, keyed by uid."""
+    return get_client().collection(_BILLINGS).document(uid)
 
 
 def insights_collection(uid: str) -> Any:
-    """Model-written analysis. Read by the client, written only from here."""
-    return user_doc(uid).collection("insights")
+    """Model-written analysis. Read by the client, written only from here.
+
+    Still a subcollection of the profile: it is meaningless without the account
+    it describes, and nothing ever queries across accounts for it.
+    """
+    return profile_doc(uid).collection("insights")
