@@ -23,6 +23,13 @@ from app.schemas.trade import Trade
 # Below this, any "pattern" is noise.
 MIN_TRADES_FOR_ANALYSIS = 8
 
+#: Stored lowercase, shown the way a trader says it.
+SESSION_NAMES = {
+    "asia": "Asia",
+    "london": "London",
+    "newyork": "New York",
+}
+
 
 def _as_float(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
@@ -101,6 +108,7 @@ class Summary:
     rule_adherence: RuleAdherence = field(default_factory=RuleAdherence)
     by_setup: list[Bucket] = field(default_factory=list)
     by_hour: list[Bucket] = field(default_factory=list)
+    by_session: list[Bucket] = field(default_factory=list)
 
 
 def _hold_minutes(trade: Trade) -> float | None:
@@ -259,6 +267,15 @@ def summarise(trades: list[Trade]) -> Summary:
         _bucket(
             [t for t in trades if _when(t)],
             lambda t: f"{_when(t).hour:02d}:00",  # type: ignore[union-attr]
+        )
+    )
+    # Sessions rather than clock hours: "your New York trades lose money" is
+    # something a trader can act on, where "your 14:00 trades" is a coincidence
+    # until you know which session that hour belongs to.
+    summary.by_session = _worst_first(
+        _bucket(
+            [t for t in trades if t.session],
+            lambda t: SESSION_NAMES.get(t.session, t.session),
         )
     )
 

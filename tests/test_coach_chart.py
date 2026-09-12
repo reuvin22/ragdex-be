@@ -135,6 +135,9 @@ def test_the_chart_is_noted_but_not_stored(client, monkeypatch) -> None:
     saved: dict = {}
     _capture(monkeypatch)
     monkeypatch.setattr(route.trades_repo, "all_trades", lambda uid: [])
+    # The route reads the trader own capital and risk limits to grade
+    # execution against them; none of that is under test here.
+    monkeypatch.setattr(route.profiles_repo, "get_profile", lambda uid: None)
     monkeypatch.setattr(route.conversations_repo, "load_turns", lambda uid: [])
     monkeypatch.setattr(
         route.conversations_repo,

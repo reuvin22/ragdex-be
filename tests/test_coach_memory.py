@@ -29,6 +29,9 @@ def _stub(monkeypatch, *, stored: list[CoachTurn]) -> dict:
 
     monkeypatch.setattr(route.coach_service, "ask", fake_ask)
     monkeypatch.setattr(route.trades_repo, "all_trades", lambda uid: [])
+    # The route reads the trader own capital and risk limits to grade
+    # execution against them; none of that is under test here.
+    monkeypatch.setattr(route.profiles_repo, "get_profile", lambda uid: None)
     monkeypatch.setattr(
         route.conversations_repo, "load_turns", lambda uid: seen["stored"]
     )

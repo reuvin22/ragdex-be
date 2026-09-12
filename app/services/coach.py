@@ -17,12 +17,14 @@ import json
 import logging
 import re
 from dataclasses import asdict
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings
 from app.schemas.coach import CoachTurn
+from app.schemas.profile import Profile
 from app.services import openrouter
 from app.services.stats import Bucket, RuleAdherence, Summary
 
@@ -173,8 +175,11 @@ are the behaviour itself, already measured. Read them that way:
 - "Plan compliance" separates the two failures for you. High compliance and poor
   results is a strategy problem. Poor compliance is an execution problem, and
   nothing about the strategy is worth discussing until it is fixed.
-- "Worst setup by money" and "worst hour of the day" are where to point when they
-  ask what to cut. "Best setup" and "best hour" are the opposite and just as
+- "Worst setup by money", "worst hour of the day" and "worst session" are where
+  to point when they ask what to cut. Session is the most actionable of the
+  three: "your New York trades lose money" is a decision someone can make
+  tonight, where an hour on a clock is a coincidence until you know which
+  session it belongs to. "Best setup" and "best hour" are the opposite and just as
   useful — that is where their edge already lives, and a trader who is losing
   overall usually still has one, drowned out by the noise of the losses."""
 
@@ -572,6 +577,7 @@ def headline_facts(summary: Summary) -> str:
     # narrow patch is the thing worth protecting.
     lines += _extremes("setup by money", summary.by_setup)
     lines += _extremes("hour of the day", summary.by_hour)
+    lines += _extremes("session", summary.by_session)
 
     return "\n".join(f"- {line}" for line in lines)
 
@@ -653,10 +659,110 @@ def language_rule(language: str) -> str:
     )
 
 
+def _money_or(value: Decimal | None, currency: str) -> str:
+    return "not set" if value is None else f"{currency} {_money(float(value))}"
+
+
+def _pct(value: Decimal | None) -> str:
+    return "not set" if value is None else f"{value}%"
+
+
+def trading_setup(profile: Profile | None) -> str:
+    """What the trader told us about how they trade.
+
+    This is the difference between a coach that can see a position was bigger
+    than the last one and a coach that can say it broke the 1% limit they set
+    themselves. Everything here is self-reported, which is the point — these
+    are the rules they agreed to, so breaking one is their own standard and not
+    an outsider's opinion.
+    """
+    if profile is None:
+        return ""
+
+    currency = profile.currency or "USD"
+    lines: list[str] = []
+
+    if profile.market_type:
+        lines.append(f"Market: {profile.market_type}")
+
+    if profile.funding_type == "prop_firm":
+        named = profile.prop_firm or "an unnamed firm"
+        lines.append(
+            f"Account: funded by {named}. This is somebody else's money under "
+            "somebody else's rules, and a drawdown breach ends the account "
+            "rather than denting it — weight risk discipline accordingly and "
+            "never encourage them to trade through a limit to make it back."
+        )
+    elif profile.funding_type == "demo":
+        lines.append(
+            "Account: demo. The habits are real even though the money is not, "
+            "so coach the execution and do not congratulate the profit."
+        )
+    elif profile.funding_type == "personal":
+        lines.append("Account: their own money.")
+
+    if profile.account_size is not None:
+        lines.append(f"Total capital: {_money_or(profile.account_size, currency)}")
+
+    if profile.risk_per_trade_pct is not None:
+        risk = _pct(profile.risk_per_trade_pct)
+        cash = ""
+        if profile.account_size is not None:
+            # Worked out here rather than left to the model. A percentage is
+            # what they set; the cash figure is what they actually feel, and
+            # arithmetic is the one thing a small model reliably gets wrong.
+            per_trade = profile.account_size * profile.risk_per_trade_pct / 100
+            cash = f" — about {_money_or(per_trade, currency)} a trade"
+        lines.append(f"Their own maximum risk per trade: {risk}{cash}")
+
+    if profile.max_daily_loss_pct is not None:
+        lines.append(f"Their own daily loss limit: {_pct(profile.max_daily_loss_pct)}")
+
+    if profile.target_r is not None:
+        lines.append(
+            f"Reward they plan per unit of risk: {profile.target_r}R "
+            f"(risking one to make {profile.target_r})"
+        )
+
+    if profile.max_trades_per_day is not None:
+        lines.append(f"Their own cap on trades per day: {profile.max_trades_per_day}")
+
+    if profile.strategies:
+        lines.append(f"Setups they say they trade: {', '.join(profile.strategies)}")
+
+    if profile.trading_rules.strip():
+        lines.append(f"Their rules, in their own words:\n{profile.trading_rules.strip()}")
+
+    if not lines:
+        return (
+            "THEIR TRADING SETUP: they have not filled this in. You do not know "
+            "their capital, their risk limit or the rules they trade by, so do "
+            "not invent any of it. Telling them to set those in Settings is "
+            "useful advice in itself — without a stated limit there is nothing "
+            "to be disciplined about."
+        )
+
+    body = "\n".join(f"- {line}" for line in lines)
+    return (
+        "THEIR TRADING SETUP, as they described it themselves:\n\n"
+        f"{body}\n\n"
+        "Use these as the standard you hold them to. A trade that broke one of "
+        "these broke a rule THEY wrote, which is far harder to argue with than "
+        "anything you could assert. Where the journal shows behaviour that "
+        "crosses one of these numbers, say so and name the number. Do not "
+        "invent limits they have not given you, and do not quietly change one: "
+        "if they ask for a risk limit and have set none, help them choose it."
+    )
+
+
 def build_system_prompt(
-    summary: Summary | None, language: str, display_name: str
+    summary: Summary | None,
+    language: str,
+    display_name: str,
+    profile: Profile | None = None,
 ) -> str:
     who = f"The trader's name is {display_name}." if display_name else ""
+    setup = trading_setup(profile)
 
     if summary is None or summary.trade_count == 0:
         data = (
@@ -696,6 +802,8 @@ This is the coaching playbook you work from. It is who you are:
 {OUTPUT_RULES}
 
 {ADVICE_SHAPE}
+
+{setup}
 
 {data}
 
@@ -772,8 +880,9 @@ async def ask(
     display_name: str,
     settings: Settings,
     image: str | None = None,
+    profile: Profile | None = None,
 ) -> openrouter.Completion:
-    prompt = build_system_prompt(summary, language, display_name)
+    prompt = build_system_prompt(summary, language, display_name, profile)
     if image:
         prompt = f"{prompt}\n\n{CHART_RULES}"
 

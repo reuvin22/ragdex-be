@@ -12,6 +12,7 @@ from fastapi import APIRouter
 
 from app.api.deps import AppSettings, CoachRateLimit, ReadUser, WriteUser
 from app.repositories import conversations as conversations_repo
+from app.repositories import profiles as profiles_repo
 from app.repositories import trades as trades_repo
 from app.schemas.coach import (
     HISTORY_LIMIT,
@@ -56,6 +57,9 @@ async def chat(
         display_name=user.name or "",
         settings=settings,
         image=payload.image,
+        # Their own capital, risk limits and rules, so the coach measures
+        # execution against a standard they set rather than guessing at one.
+        profile=profiles_repo.get_profile(user.uid),
     )
 
     # After the model answered. A failed request leaves the stored conversation

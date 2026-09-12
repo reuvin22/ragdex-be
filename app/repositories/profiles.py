@@ -31,7 +31,26 @@ _FIELDS = {
     "markets": "markets",
     "bio": "bio",
     "coach_language": "coachLanguage",
+    "market_type": "marketType",
+    "funding_type": "fundingType",
+    "prop_firm": "propFirm",
+    "account_size": "accountSize",
+    "risk_per_trade_pct": "riskPerTradePct",
+    "max_daily_loss_pct": "maxDailyLossPct",
+    "target_r": "targetR",
+    "max_trades_per_day": "maxTradesPerDay",
+    "strategies": "strategies",
+    "trading_rules": "tradingRules",
 }
+
+
+def _decimal(value: Any) -> Decimal | None:
+    """A stored number back as a Decimal, or None if it was never set.
+
+    Firestore hands numbers back as int or float; going through str keeps a
+    percentage like 0.75 from arriving as 0.7499999999999999.
+    """
+    return None if value is None else Decimal(str(value))
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -59,6 +78,16 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         markets=list(data.get("markets", [])),
         bio=data.get("bio", ""),
         coach_language=data.get("coachLanguage"),
+        market_type=data.get("marketType"),
+        funding_type=data.get("fundingType"),
+        prop_firm=data.get("propFirm", ""),
+        account_size=_decimal(data.get("accountSize")),
+        risk_per_trade_pct=_decimal(data.get("riskPerTradePct")),
+        max_daily_loss_pct=_decimal(data.get("maxDailyLossPct")),
+        target_r=_decimal(data.get("targetR")),
+        max_trades_per_day=data.get("maxTradesPerDay"),
+        strategies=list(data.get("strategies", [])),
+        trading_rules=data.get("tradingRules", ""),
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),

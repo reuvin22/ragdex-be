@@ -69,6 +69,7 @@ _SEALED = frozenset(
         "entryAt",
         "exitAt",
         "setup",
+        "session",
         "rationale",
         "stopLoss",
         "takeProfit",
@@ -103,6 +104,7 @@ def _to_trade(snapshot: DocumentSnapshot) -> Trade:
         entry_at=_to_datetime(data.get("entryAt")),
         exit_at=_to_datetime(data.get("exitAt")),
         setup=data.get("setup", ""),
+        session=data.get("session", ""),
         rationale=data.get("rationale", ""),
         stop_loss=_to_decimal(data.get("stopLoss")),
         take_profit=_to_decimal(data.get("takeProfit")),
@@ -136,6 +138,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "entry_at": "entryAt",
         "exit_at": "exitAt",
         "setup": "setup",
+        "session": "session",
         "rationale": "rationale",
         "stop_loss": "stopLoss",
         "take_profit": "takeProfit",
@@ -158,6 +161,34 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         document[key] = float(value) if isinstance(value, Decimal) else value
 
     return document
+
+
+def session_for(entry_at: datetime | None) -> str:
+    """Which trading session an entry time falls in.
+
+    Bands in UTC, chosen so they tile the clock rather than overlap. The real
+    sessions do overlap — London and New York share four hours, and that
+    overlap is where much of the day's volume is — but a trade happens once and
+    has to land in one bucket, so each hour is assigned to the session that
+    dominates it.
+
+    An approximation in one known way: the London and New York opens shift by
+    an hour with daylight saving and these bounds do not. That moves a handful
+    of trades near a boundary and is not worth a timezone database, but it is
+    the reason a trader who cares should pick the session themselves rather
+    than leave it to be worked out.
+    """
+    if entry_at is None:
+        return ""
+
+    hour = entry_at.astimezone(UTC).hour
+
+    if 7 <= hour < 12:
+        return "london"
+    if 12 <= hour < 21:
+        return "newyork"
+    # 21:00 through 07:00 — Sydney opens at 21:00 and Tokyo at 00:00.
+    return "asia"
 
 
 def _derive(document: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +216,14 @@ def _derive(document: dict[str, Any]) -> dict[str, Any]:
         risk = abs(entry - stop)
         reward = abs(target - entry)
         document["riskReward"] = round(reward / risk, 2) if risk else None
+
+    # "No idea" plus an entry time is answerable, so answer it rather than
+    # storing a blank the statistics then have to skip. A session the trader
+    # chose themselves is never overwritten.
+    if not document.get("session"):
+        derived = session_for(document.get("entryAt"))
+        if derived:
+            document["session"] = derived
 
     return document
 

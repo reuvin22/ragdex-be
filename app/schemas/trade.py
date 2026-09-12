@@ -17,6 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Direction = Literal["Long", "Short"]
 Compliance = Literal["yes", "no", ""]
 
+#: Which session the trade was taken in. Empty means unknown — either the
+#: trader did not say and there was no entry time to work it out from, or the
+#: trade predates the field.
+TradingSession = Literal["asia", "london", "newyork", ""]
+
 # Money and sizes are bounded so a typo cannot write an absurd document, and
 # so downstream arithmetic cannot be handed an infinity.
 Money = Annotated[Decimal, Field(ge=-1_000_000_000, le=1_000_000_000)]
@@ -48,6 +53,9 @@ class TradeBase(BaseModel):
     exit_at: datetime | None = None
 
     setup: str = _short_text()
+    # Left empty by a trader who does not know, and filled in from the entry
+    # time by the server. See session_for() in repositories/trades.
+    session: TradingSession = ""
     rationale: str = _text()
     stop_loss: Money | None = None
     take_profit: Money | None = None
@@ -102,6 +110,7 @@ class TradeUpdate(BaseModel):
     entry_at: datetime | None = None
     exit_at: datetime | None = None
     setup: str | None = Field(default=None, max_length=120)
+    session: TradingSession | None = None
     rationale: str | None = Field(default=None, max_length=2_000)
     stop_loss: Money | None = None
     take_profit: Money | None = None

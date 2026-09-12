@@ -11,6 +11,17 @@ from pydantic import BaseModel, ConfigDict, Field
 AccountType = Literal["student", "coach", "individual"]
 PlanId = Literal["individual", "coach"]
 
+#: What they trade. Broad on purpose — the coach uses it for vocabulary and
+#: for what a normal hold time looks like, not for anything it calculates.
+MarketType = Literal[
+    "forex", "crypto", "futures", "stocks", "options", "indices", "mixed"
+]
+
+#: Whose money is at risk. A funded account has rules someone else wrote and a
+#: drawdown that ends the account rather than denting it, which changes what
+#: good advice looks like.
+FundingType = Literal["personal", "prop_firm", "demo"]
+
 
 class ProfileUpdate(BaseModel):
     """The fields a trader may edit about themselves.
@@ -33,6 +44,28 @@ class ProfileUpdate(BaseModel):
     bio: str | None = Field(default=None, max_length=1_000)
     coach_language: str | None = Field(default=None, max_length=40)
 
+    # -- Trading setup ---------------------------------------------------
+    # What the coach needs to judge execution rather than guess at it. Without
+    # these it can see that a position was larger than the last one; with them
+    # it can say the trade broke a 1% limit the trader set themselves.
+    market_type: MarketType | None = None
+    funding_type: FundingType | None = None
+    # Only meaningful alongside funding_type "prop_firm".
+    prop_firm: str | None = Field(default=None, max_length=80)
+    account_size: Decimal | None = Field(default=None, ge=0, le=1_000_000_000)
+    # Percentages of the account, which travel across account sizes in a way
+    # that a cash figure does not.
+    risk_per_trade_pct: Decimal | None = Field(default=None, ge=0, le=100)
+    max_daily_loss_pct: Decimal | None = Field(default=None, ge=0, le=100)
+    # The reward they plan per unit of risk: 2 means risking one to make two.
+    target_r: Decimal | None = Field(default=None, ge=0, le=100)
+    max_trades_per_day: int | None = Field(default=None, ge=0, le=200)
+    strategies: list[str] | None = Field(default=None, max_length=20)
+    # The non-negotiables, in their own words. Free text because a rule that
+    # matters to one trader is nonsense to another, and a fixed list would
+    # collect the ones we thought of rather than the ones they break.
+    trading_rules: str | None = Field(default=None, max_length=2_000)
+
 
 class Profile(BaseModel):
     uid: str
@@ -47,6 +80,16 @@ class Profile(BaseModel):
     markets: list[str] = Field(default_factory=list)
     bio: str = ""
     coach_language: str | None = None
+    market_type: MarketType | None = None
+    funding_type: FundingType | None = None
+    prop_firm: str = ""
+    account_size: Decimal | None = None
+    risk_per_trade_pct: Decimal | None = None
+    max_daily_loss_pct: Decimal | None = None
+    target_r: Decimal | None = None
+    max_trades_per_day: int | None = None
+    strategies: list[str] = Field(default_factory=list)
+    trading_rules: str = ""
     plan: PlanId = "individual"
     plan_since: datetime | None = None
     created_at: datetime | None = None
