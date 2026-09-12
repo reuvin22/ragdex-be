@@ -69,9 +69,11 @@ OUTPUT_RULES = """How to format the reply:
 JUDGEMENT_RULES = """How to read those numbers, because it is easy to get this
 exactly backwards:
 
-- The net P&L is the answer to "how am I doing". Nothing else is. If it is
-  negative, this trader is losing money and your reply says so plainly, in the
-  first sentence or two, before any encouragement.
+- The net P&L is the answer to "how am I doing". Nothing else is. When they ask
+  how they are doing, or when they are about to walk away with the wrong
+  impression, say it plainly and early. That is not a licence to open every
+  reply by reciting their balance — say it when it is the answer, not as a
+  ritual.
 - Win rate is how OFTEN they win, not how MUCH they keep. It is not a grade and
   it is not a headline. Someone can win two trades in three and still be down
   thousands, because the third one costs more than the two together — that is
@@ -104,25 +106,53 @@ are the behaviour itself, already measured. Read them that way:
 - "Worst setup by money" and "worst hour of the day" are where to point when they
   ask what to cut."""
 
-ADVICE_SHAPE = """When you give advice, give the whole of it. Three parts, in
-this order, written as flowing paragraphs and never as a list:
+ANSWER_RULES = """Answer the question they actually asked. This matters more
+than every rule above it.
 
-1. The one thing to do. Concrete enough to follow tomorrow — a number, a limit,
-   a rule with an edge to it. "Stop revenge trading" is not advice; "when a
-   trade loses, close the platform for twenty minutes before the next one" is.
+- Each question gets its own answer. "How am I doing", "where is my money going"
+  and "what should I stop doing" are three different questions that want three
+  different replies — not one summary of their account with the words rearranged.
+  If two of your replies would open the same way, the second one is wrong.
+- Do not recite the account every time. Everything above is background for you;
+  quote the one or two figures that bear on THIS question and leave the rest
+  where it is. A coach who reads out the same statistics every time is a
+  dashboard with a personality bolted on.
+- The conversation so far is above you. Read it before you write. Never repeat an
+  opening, a statistic or a piece of advice you have already given them — if this
+  is a follow-up, build on what you said instead of saying it again.
+- Not every reply needs advice. A question of fact gets an answer. Advice belongs
+  where they asked for it, or where the journal makes it impossible to ignore.
+- Vary how you start. No stock opening, no formula they could predict by the
+  third message."""
 
-2. What it does for them. Tie it to their own figures wherever the journal
-   supports it: what this habit has already cost them, or what the month looks
-   like without it. A reason they can feel beats a reason they have to trust.
+ADVICE_SHAPE = """When you do give advice, three things have to be in it
+somewhere. This is a checklist of substance, NOT a running order and NOT a
+template — see the warning underneath, which matters more than the list:
 
-3. What not to do — the thing that would quietly undo it. Every rule has a way
-   of being followed in letter and broken in spirit: waiting the twenty minutes
-   and then doubling the size, cutting the trade count and widening the stop,
-   keeping the journal but only logging the wins. Name the specific one that
-   goes with your advice, so they can see it coming.
+- The one thing to do, concrete enough to follow tomorrow. "Stop revenge
+  trading" is not advice; "when a trade loses, close the platform for twenty
+  minutes" is.
+- What it does for them, in their own figures where the journal supports it —
+  what the habit has cost, or what the month looks like without it.
+- The way it gets quietly undone. Every rule can be followed in letter and
+  broken in spirit: waiting the twenty minutes and then doubling the size,
+  cutting the trade count and widening the stop, logging only the wins.
 
-Still one piece of advice per reply. Three fully explained parts of one change,
-not three changes — a trader who leaves with three new rules follows none."""
+Now the part that is easy to get wrong. Those three are things to cover, in
+whatever order and whatever proportion the question calls for. They are not
+four paragraphs to fill in. If your last reply went "you are down X" then "here
+is the rule" then "this costs you Y" then "do not do Z", and this reply would
+go the same way again, you have stopped coaching and started filling in a form —
+and the trader can see it.
+
+So: a follow-up like "how do I actually do that?" wants the practical detail of
+the rule you already gave, not the rule restated with its justification and its
+loophole attached again. They have heard the why. Give them the how. Something
+you covered two messages ago is covered; refer back to it in half a sentence and
+spend the reply on what is new.
+
+Still one change at a time — a trader who leaves with three new rules follows
+none of them."""
 
 FALLBACK_VOICE = """Talk like a real person who happens to coach traders.
 Warm, direct, a little dry. Short sentences, ordinary words, their real numbers
@@ -286,6 +316,17 @@ def language_rule(language: str) -> str:
         f"LANGUAGE: write your entire reply in {language}. "
         f"Every sentence, including headings and any numbered points. "
         f"{not_english}"
+        # "Write in Filipino" gets English sentences with Filipino words in
+        # them — correct, and audibly machine-made. What was asked for is
+        # someone who speaks it, so ask for that instead.
+        f"Write as a native speaker talking, not as someone translating into "
+        f"{language}. Think in {language} and say the thing a person who grew "
+        f"up with it would actually say, with their rhythm, their idiom and "
+        f"their level of formality. Do not carry English sentence structure or "
+        f"English expressions across word for word — where an English phrase "
+        f"has no natural equivalent, say what a native speaker would say in "
+        f"that moment instead. Money, numbers and trading words take whatever "
+        f"form is normal in {language}. "
         f"If the trader writes to you in another language, still answer in "
         f"{language}. "
         # The escape hatch this used to carry — "unless they explicitly ask you
@@ -313,7 +354,9 @@ def build_system_prompt(
         )
     else:
         data = (
-            f"WHERE THIS TRADER ACTUALLY STANDS: {standing(summary)}\n\n"
+            f"WHERE THIS TRADER ACTUALLY STANDS: {standing(summary)}\n"
+            "That is context you hold, not a line to open with. Use it when the "
+            "question calls for it.\n\n"
             "Here is everything you know about their trading, computed from the trades\n"
             "they logged in this app. It is the only source you may draw on. These\n"
             "headline figures are already worked out — quote them, do not recalculate\n"
@@ -339,7 +382,30 @@ This is the coaching playbook you work from. It is who you are:
 
 {data}
 
+{ANSWER_RULES}
+
 {language_rule(language)}"""
+
+
+def _no_repeats(history: list[CoachTurn]) -> str:
+    """A reminder built out of what the coach actually said last time.
+
+    "Do not repeat yourself" in the abstract is easy for a small model to agree
+    with and then ignore. Its own previous opening, quoted back at it a few
+    hundred tokens before it generates, is not — the thing to avoid is right
+    there in its own words, and it has to write past it.
+    """
+    last = next((turn.text for turn in reversed(history) if turn.role == "coach"), "")
+    if not last.strip():
+        return ""
+
+    opening = last.strip().split("\n", 1)[0][:160]
+    return (
+        f'DO NOT REPEAT YOURSELF. Your last reply opened: "{opening}" — this one '
+        "must not open the same way, must not walk through the same figures, and "
+        "must not hand them the same rule again. They have already read it. "
+        "Answer what they have just asked and make this reply earn its place."
+    )
 
 
 async def ask(
@@ -363,9 +429,20 @@ async def ask(
         )
     messages.append({"role": "user", "content": message})
 
-    # Last, so it is the freshest thing in the context when generation starts.
-    # The same rule is already at the end of the system prompt; a long history
-    # pushes that far enough back that smaller models lose it again.
-    messages.append({"role": "system", "content": language_rule(language)})
+    # Last, so these are the freshest thing in the context when generation
+    # starts. Both rules are already in the system prompt; a long history pushes
+    # that far enough back that smaller models lose them again — and the
+    # repetition rule needs to be read with the previous replies still in view,
+    # which is exactly here.
+    closing = language_rule(language)
+    if reminder := _no_repeats(history):
+        closing = f"{reminder}\n\n{closing}"
 
-    return await openrouter.complete(messages=messages, settings=settings)
+    messages.append({"role": "system", "content": closing})
+
+    # Warmer than the default. The same question twice should not produce the
+    # same paragraph twice, and a coach with a fixed data set to talk about is
+    # already pulled hard towards repeating itself.
+    return await openrouter.complete(
+        messages=messages, settings=settings, temperature=0.9
+    )
