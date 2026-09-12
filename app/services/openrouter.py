@@ -35,6 +35,11 @@ DEFAULT_MODELS = (
     "meta-llama/llama-3.2-3b-instruct",
 )
 
+# How far the budget may be stretched when a reply is cut off before it starts.
+# A ceiling rather than no limit: past this the problem is the prompt, not the
+# room, and doubling forever only makes each failure slower and dearer.
+_RETRY_CEILING = 8_000
+
 # Some open models narrate their own thinking. None of it should reach a user.
 _REASONING = re.compile(r"<(think|reasoning)>.*?</\1>", re.IGNORECASE | re.DOTALL)
 
@@ -65,36 +70,11 @@ def strip_reasoning(text: str) -> str:
     return _UNCLOSED_REASONING.sub("", _REASONING.sub("", text)).strip()
 
 
-async def complete(
-    *,
-    messages: list[dict[str, str]],
-    settings: Settings,
-    models: list[str] | None = None,
-    temperature: float = 0.7,
-    max_tokens: int | None = None,
-    json_object: bool = False,
-) -> Completion:
-    if settings.openrouter_api_key is None:
-        raise AppError(
-            "The coach is not configured on the server.",
-            status_code=501,
-            code="not_configured",
-        )
-
-    chain = models or configured_models(settings)
-    body: dict[str, Any] = {
-        "models": chain,
-        "messages": messages,
-        "temperature": temperature,
-        # The reasoning models in the default chain spend tokens thinking
-        # before they write a word, and the budget covers both. Too low and the
-        # thinking finishes, the answer never starts, and what comes back is
-        # empty — which is a configuration problem that reads like a bug.
-        "max_tokens": max_tokens or settings.openrouter_max_tokens,
-    }
-    if json_object:
-        body["response_format"] = {"type": "json_object"}
-
+async def _post(
+    *, body: dict[str, Any], settings: Settings, chain: list[str]
+) -> dict[str, Any]:
+    """One call to OpenRouter, with every transport and status failure already
+    turned into the error a caller should raise."""
     try:
         timeout = settings.openrouter_timeout_seconds
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -103,7 +83,7 @@ async def complete(
                 json=body,
                 headers={
                     "Authorization": (
-                        f"Bearer {settings.openrouter_api_key.get_secret_value()}"
+                        f"Bearer {settings.openrouter_api_key.get_secret_value()}"  # type: ignore[union-attr]
                     ),
                     "Content-Type": "application/json",
                 },
@@ -155,31 +135,72 @@ async def complete(
         raise UpstreamError("The coach could not answer just now.")
 
     try:
-        payload = response.json()
-        choice = payload["choices"][0]
-        message = choice["message"]
-    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
-        logger.error("Unexpected OpenRouter payload shape")
+        payload: dict[str, Any] = response.json()
+        return payload
+    except json.JSONDecodeError as exc:
+        logger.error("OpenRouter sent a body that is not JSON")
         raise UpstreamError("The coach sent something unreadable.") from exc
 
-    content = message.get("content") or ""
-    text = strip_reasoning(content)
 
-    if not text:
-        # This used to raise with nothing logged at all, which left one opaque
-        # sentence and no way to tell a truncated answer from a model that
-        # simply said nothing. The three causes need three different fixes, so
-        # say which one it was.
+async def complete(
+    *,
+    messages: list[dict[str, str]],
+    settings: Settings,
+    models: list[str] | None = None,
+    temperature: float = 0.7,
+    max_tokens: int | None = None,
+    json_object: bool = False,
+) -> Completion:
+    if settings.openrouter_api_key is None:
+        raise AppError(
+            "The coach is not configured on the server.",
+            status_code=501,
+            code="not_configured",
+        )
+
+    chain = models or configured_models(settings)
+    budget = max_tokens or settings.openrouter_max_tokens
+
+    body: dict[str, Any] = {
+        "models": chain,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if json_object:
+        body["response_format"] = {"type": "json_object"}
+
+    while True:
+        # The reasoning models in the default chain spend this budget thinking
+        # before they write a word, and it covers both. Too small and the
+        # thinking finishes, the answer never starts, and nothing comes back.
+        body["max_tokens"] = budget
+
+        payload = await _post(body=body, settings=settings, chain=chain)
+
+        try:
+            choice = payload["choices"][0]
+            message = choice["message"]
+        except (KeyError, IndexError, TypeError) as exc:
+            logger.error("Unexpected OpenRouter payload shape")
+            raise UpstreamError("The coach sent something unreadable.") from exc
+
+        content = message.get("content") or ""
+        text = strip_reasoning(content)
+
+        if text:
+            return Completion(text=text, model=payload.get("model", chain[0]))
+
+        # Nothing usable. Three causes, three different fixes — this used to
+        # raise with no log line at all, which left one opaque sentence and no
+        # way to tell them apart.
         finish = choice.get("finish_reason")
-        # Reasoning models can return their thinking in its own field and put
-        # nothing in content. It is still never shown to anyone — only counted.
+        # Reasoning models can return their thinking in its own field and leave
+        # content empty. It is counted here and shown to nobody.
         reasoning = message.get("reasoning") or ""
+        truncated = finish == "length"
 
-        if finish == "length":
-            diagnosis = (
-                "The token budget ran out before the answer began. Raise "
-                "OPENROUTER_MAX_TOKENS, or shorten the system prompt."
-            )
+        if truncated:
+            diagnosis = "The budget ran out before the answer began."
         elif reasoning or content:
             diagnosis = "The model returned only its own reasoning, never an answer."
         else:
@@ -192,18 +213,25 @@ async def complete(
             finish,
             len(content),
             len(reasoning),
-            body["max_tokens"],
+            budget,
             diagnosis,
         )
 
-        if finish == "length":
+        # One more go with room to finish. A model that thinks its way through
+        # the whole budget is a number that was too small, not a broken coach,
+        # and a slower reply beats an error. Doubling on demand also keeps the
+        # default from having to cover the worst case on every request.
+        if truncated and budget < _RETRY_CEILING:
+            budget = min(budget * 2, _RETRY_CEILING)
+            logger.warning("Retrying the same request with %d tokens", budget)
+            continue
+
+        if truncated:
             raise UpstreamError(
                 "The coach ran out of room before it could answer. Try a shorter "
                 "question."
             )
         raise UpstreamError("The coach returned an empty answer.")
-
-    return Completion(text=text, model=payload.get("model", chain[0]))
 
 
 def parse_json_reply(text: str) -> dict[str, Any]:

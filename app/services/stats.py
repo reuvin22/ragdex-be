@@ -46,6 +46,46 @@ class AfterLoss:
 
 
 @dataclass(slots=True)
+class RuleSplit:
+    """One side of the rules-followed / rules-broken comparison."""
+
+    trades: int = 0
+    net_pl: float = 0.0
+    win_rate: float = 0.0
+    profit_factor: float | None = None
+    avg_pl: float = 0.0
+
+
+@dataclass(slots=True)
+class RuleAdherence:
+    """How often this trader follows their own rules, and what it is worth.
+
+    The score on its own is a number to feel bad about. The split beside it is
+    the part that changes behaviour: the same trader, on the trades where they
+    kept to their plan and the trades where they did not, with the difference
+    in money. "You broke your rules on nine trades and they cost you $1,800" is
+    an argument. "Be more disciplined" is not.
+
+    Binary on purpose. A trade counts as followed only if every rule the trader
+    answered for it was answered yes — entering early but exiting properly is
+    broken, not two thirds kept. Partial credit creates a grey area that makes
+    the whole measurement soft.
+    """
+
+    #: Trades with at least one rule question answered. The denominator — a
+    #: trade nobody graded cannot count for or against.
+    tagged: int = 0
+    followed: int = 0
+    broken: int = 0
+    #: None when nothing has been tagged: no score rather than a score of zero,
+    #: which would read as total indiscipline instead of no data.
+    score: float | None = None
+    rating: str = ""
+    followed_side: RuleSplit = field(default_factory=RuleSplit)
+    broken_side: RuleSplit = field(default_factory=RuleSplit)
+
+
+@dataclass(slots=True)
 class Summary:
     trade_count: int = 0
     closed_count: int = 0
@@ -57,7 +97,8 @@ class Summary:
     avg_hold_minutes: float | None = None
     worst_streak: int = 0
     after_loss: AfterLoss = field(default_factory=AfterLoss)
-    plan_compliance: dict[str, int] = field(default_factory=dict)
+    plan_compliance: dict[str, int | None] = field(default_factory=dict)
+    rule_adherence: RuleAdherence = field(default_factory=RuleAdherence)
     by_setup: list[Bucket] = field(default_factory=list)
     by_hour: list[Bucket] = field(default_factory=list)
 
@@ -73,12 +114,92 @@ def _when(trade: Trade) -> datetime | None:
     return trade.entry_at or trade.created_at
 
 
-def _compliance_rate(trades: list[Trade], attribute: str) -> int:
+_RULES = ("complied_entry", "complied_exit", "complied_management")
+
+
+def _compliance_rate(trades: list[Trade], attribute: str) -> int | None:
+    """How often one rule was kept, or None if it was never graded.
+
+    None rather than 0. Nobody answering the question is not the same as
+    answering "no" every time, and the coach reading a flat zero would tell a
+    trader they never follow their entry rules on the strength of no evidence
+    whatsoever.
+    """
     answered = [t for t in trades if getattr(t, attribute) in ("yes", "no")]
     if not answered:
-        return 0
+        return None
     kept = sum(1 for t in answered if getattr(t, attribute) == "yes")
     return round(kept / len(answered) * 100)
+
+
+def _rating(score: float) -> str:
+    """The band a score falls in. Bands, not a raw number, because "68%" says
+    nothing about what to do next and "solid progress, fix your worst trigger"
+    does."""
+    if score < 60:
+        return (
+            "System problem — the rules are too many, too vague, or not how "
+            "they really trade"
+        )
+    if score < 75:
+        return "Solid progress — following the rules more often than not"
+    if score < 85:
+        return "Strong discipline — into refinement, where each point is worth money"
+    return "Elite discipline — the job now is holding it, and the risk is complacency"
+
+
+def _split(trades: list[Trade]) -> RuleSplit:
+    """The performance of one group of trades, closed ones only."""
+    results = [float(t.net_pl) for t in trades if t.net_pl is not None]
+    split = RuleSplit(trades=len(results))
+    if not results:
+        return split
+
+    wins = [value for value in results if value >= 0]
+    losses = [value for value in results if value < 0]
+    gross_loss = abs(sum(losses))
+
+    split.net_pl = round(sum(results), 2)
+    split.avg_pl = round(sum(results) / len(results), 2)
+    split.win_rate = len(wins) / len(results) * 100
+    split.profit_factor = round(sum(wins) / gross_loss, 2) if gross_loss else None
+    return split
+
+
+def _rule_adherence(trades: list[Trade]) -> RuleAdherence:
+    """The Rule Adherence Score, and what breaking the rules has cost.
+
+    A trade is graded only if the trader answered at least one of the three
+    rule questions on it, and it counts as followed only if every question they
+    did answer was a yes.
+    """
+    adherence = RuleAdherence()
+
+    graded: list[tuple[Trade, bool]] = []
+    for trade in trades:
+        answers = [
+            answer
+            for rule in _RULES
+            if (answer := getattr(trade, rule)) in ("yes", "no")
+        ]
+        if answers:
+            graded.append((trade, all(answer == "yes" for answer in answers)))
+
+    if not graded:
+        return adherence
+
+    followed = [trade for trade, kept in graded if kept]
+    broken = [trade for trade, kept in graded if not kept]
+
+    adherence.tagged = len(graded)
+    adherence.followed = len(followed)
+    adherence.broken = len(broken)
+    adherence.score = round(len(followed) / len(graded) * 100, 1)
+    adherence.rating = _rating(adherence.score)
+    adherence.followed_side = _split(followed)
+    adherence.broken_side = _split(broken)
+
+    return adherence
 
 
 def summarise(trades: list[Trade]) -> Summary:
@@ -130,6 +251,7 @@ def summarise(trades: list[Trade]) -> Summary:
         "exit": _compliance_rate(trades, "complied_exit"),
         "management": _compliance_rate(trades, "complied_management"),
     }
+    summary.rule_adherence = _rule_adherence(trades)
     summary.by_setup = _worst_first(
         _bucket(trades, lambda t: t.setup.strip() or "Unlabelled")
     )

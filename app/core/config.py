@@ -127,7 +127,12 @@ class Settings(BaseSettings):
     # it. The old 1,200 was set when the coach answered in three or four
     # sentences; it now explains a change, what it buys them, and what would
     # undo it, on top of a much longer system prompt.
-    openrouter_max_tokens: int = 2_500
+    #
+    # 2,500 still was not enough — the free reasoning models spent the lot
+    # thinking and never began. This is the starting budget; openrouter.complete
+    # doubles it once on a truncated reply rather than making every request pay
+    # for the worst case.
+    openrouter_max_tokens: int = 4_000
 
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.

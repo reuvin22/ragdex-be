@@ -23,7 +23,7 @@ from pathlib import Path
 from app.core.config import Settings
 from app.schemas.coach import CoachTurn
 from app.services import openrouter
-from app.services.stats import Summary
+from app.services.stats import RuleAdherence, Summary
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,42 @@ are the behaviour itself, already measured. Read them that way:
 - "Worst setup by money" and "worst hour of the day" are where to point when they
   ask what to cut."""
 
+RULE_ADHERENCE_GUIDANCE = """The Rule Adherence Score is how you grade a trader.
+Not their P&L — that is the scoreboard, and it moves for reasons they do not
+control. This is the part they do.
+
+- Count it every time you assess them. Any question about how they are doing,
+  whether they are improving, or how bad things are gets both halves: what the
+  money says and what the score says. They can move in opposite directions, and
+  when they do that IS the answer — "you are down two thousand and your
+  discipline went from 55% to 80%, which is the half that predicts next month".
+- Discipline is a system, not a personality trait or a quantity of willpower.
+  Never tell anyone to "be more disciplined" or "stick to your plan". That is
+  advice with nothing to do afterwards. Willpower runs out by the afternoon;
+  a rule that removes the decision does not.
+- The score is the share of graded trades where they kept every rule they
+  answered for. Binary: entering early but exiting properly is a broken trade,
+  not a partly kept one. Grey areas make the measurement useless.
+- The split is the argument, not the score. Their own rules-followed trades
+  against their own rules-broken trades, in money. Someone who sees that
+  breaking their rules cost them two thousand dollars does not need a lecture
+  about discipline; they have just read one.
+- The bands say what to do next. Under 60% the rules themselves are wrong —
+  too many, too vague, or not how they actually trade; tell them to cut back to
+  three they can follow. 60-75% means pick the single worst trigger and build
+  one defence. 75-85% is refinement. Above 85% the work is holding it.
+- Compare them to their own last score, never to another trader.
+- Rule adherence beats win rate as a measure of a trader. Someone winning 55%
+  of the time who follows their rules 90% of the time will end up ahead of
+  someone winning 65% of the time who follows them half the time, because half
+  that second trader's results come from a system they are not running.
+- Revenge trading, FOMO and overtrading are not three problems. They are three
+  ways of breaking rules, and this one number covers all of them.
+- If nothing is graded there is no score, and saying so is the coaching: tell
+  them to mark each trade followed or broken for a week without trying to change
+  anything, just to see the number. That week of honest tagging is worth more
+  than any advice you could give them instead."""
+
 ANSWER_RULES = """Answer the question they actually asked. This matters more
 than every rule above it.
 
@@ -138,21 +174,15 @@ template — see the warning underneath, which matters more than the list:
   broken in spirit: waiting the twenty minutes and then doubling the size,
   cutting the trade count and widening the stop, logging only the wins.
 
-Now the part that is easy to get wrong. Those three are things to cover, in
-whatever order and whatever proportion the question calls for. They are not
-four paragraphs to fill in. If your last reply went "you are down X" then "here
-is the rule" then "this costs you Y" then "do not do Z", and this reply would
-go the same way again, you have stopped coaching and started filling in a form —
-and the trader can see it.
+Those are things to cover, in whatever order and proportion the question calls
+for — NOT a running order and NOT a template. If your last reply went "you are
+down X", "here is the rule", "this costs you Y", "do not do Z", and this one
+would go the same way, you have stopped coaching and started filling in a form.
 
-So: a follow-up like "how do I actually do that?" wants the practical detail of
-the rule you already gave, not the rule restated with its justification and its
-loophole attached again. They have heard the why. Give them the how. Something
-you covered two messages ago is covered; refer back to it in half a sentence and
-spend the reply on what is new.
+A follow-up like "how do I actually do that?" wants the practical detail of the
+rule you already gave. They have heard the why. Give them the how.
 
-Still one change at a time — a trader who leaves with three new rules follows
-none of them."""
+One change at a time — a trader who leaves with three new rules follows none."""
 
 FALLBACK_VOICE = """Talk like a real person who happens to coach traders.
 Warm, direct, a little dry. Short sentences, ordinary words, their real numbers
@@ -177,6 +207,93 @@ def playbook() -> str:
 
 def _money(value: float) -> str:
     return f"{'-' if value < 0 else ''}{abs(round(value)):,}"
+
+
+def rule_adherence_facts(adherence: RuleAdherence) -> list[str]:
+    """The discipline score, and the two groups it splits the journal into.
+
+    The score alone is a number to feel bad about. The comparison beside it is
+    the part that moves anyone: the same trader, on the trades where they kept
+    to their plan and the trades where they did not, priced in money.
+    """
+    if adherence.score is None:
+        return [
+            "Rule Adherence Score: not measurable — they have not marked any trade "
+            "for whether they followed their entry, exit and management rules. "
+            "This is the single most useful thing they could start doing, and "
+            "worth telling them so when discipline comes up"
+        ]
+
+    kept, broke = adherence.followed_side, adherence.broken_side
+    lines = [
+        f"RULE ADHERENCE SCORE: {adherence.score}% "
+        f"({adherence.followed} of {adherence.tagged} graded trades followed every "
+        f"rule they answered). Rating: {adherence.rating}",
+    ]
+
+    if kept.trades:
+        lines.append(
+            f"On the {kept.trades} trades where they FOLLOWED their rules: "
+            f"{_money(kept.net_pl)} net, {round(kept.win_rate)}% win rate, "
+            f"{_money(kept.avg_pl)} a trade"
+            + (
+                f", profit factor {kept.profit_factor}"
+                if kept.profit_factor is not None
+                else ""
+            )
+        )
+
+    if broke.trades:
+        lines.append(
+            f"On the {broke.trades} trades where they BROKE their rules: "
+            f"{_money(broke.net_pl)} net, {round(broke.win_rate)}% win rate, "
+            f"{_money(broke.avg_pl)} a trade"
+            + (
+                f", profit factor {broke.profit_factor}"
+                if broke.profit_factor is not None
+                else ""
+            )
+        )
+
+    if kept.trades and broke.trades:
+        gap = round(kept.avg_pl - broke.avg_pl)
+        lines.append(
+            f"The gap between following the rules and not, per trade: {_money(gap)}. "
+            f"Breaking the rules has come to {_money(broke.net_pl)} in total"
+        )
+
+    return lines
+
+
+def discipline_verdict(adherence: RuleAdherence) -> str:
+    """The half of the grade the trader actually controls.
+
+    Money is the scoreboard and it moves for reasons they do not own. This is
+    the part they do, so an assessment of how someone is doing that leaves it
+    out has graded the weather.
+    """
+    if adherence.score is None:
+        return (
+            "There is no discipline score: they have never marked a trade for "
+            "whether they kept their own rules. Say so when you grade them — "
+            "the money is all you can judge until they start."
+        )
+
+    verdict = (
+        f"Rule Adherence Score {adherence.score}% — {adherence.rating}. "
+        f"They kept every rule they graded on {adherence.followed} of "
+        f"{adherence.tagged} trades."
+    )
+
+    broke = adherence.broken_side
+    if broke.trades and broke.net_pl < 0:
+        verdict += (
+            f" The {broke.trades} trades where they broke their rules came to "
+            f"{_money(broke.net_pl)}. That is the price of the score, and it is "
+            "the most persuasive thing you can show them."
+        )
+
+    return verdict
 
 
 def standing(summary: Summary) -> str:
@@ -270,9 +387,12 @@ def headline_facts(summary: Summary) -> str:
             "Position size change after a loss: "
             f"{summary.after_loss.avg_size_change_pct}%"
         ),
-        (
-            "Plan compliance: entry {entry}%, exit {exit}%, management {management}%"
-        ).format(**summary.plan_compliance),
+        "Plan compliance: "
+        + ", ".join(
+            f"{name} {'not graded' if rate is None else f'{rate}%'}"
+            for name, rate in summary.plan_compliance.items()
+        ),
+        *rule_adherence_facts(summary.rule_adherence),
     ]
 
     if summary.by_setup:
@@ -354,9 +474,13 @@ def build_system_prompt(
         )
     else:
         data = (
-            f"WHERE THIS TRADER ACTUALLY STANDS: {standing(summary)}\n"
-            "That is context you hold, not a line to open with. Use it when the "
-            "question calls for it.\n\n"
+            f"WHERE THIS TRADER ACTUALLY STANDS: {standing(summary)}\n\n"
+            f"HOW THEY ARE EXECUTING: {discipline_verdict(summary.rule_adherence)}\n\n"
+            "Those two together are the grade. Whenever you assess how they are "
+            "doing — how am I doing, am I improving, what should I fix, how bad "
+            "is it — both count: the money AND the discipline score. Grading "
+            "someone on the money alone grades the weather. Neither is a line to "
+            "open every reply with; use them when the question calls for them.\n\n"
             "Here is everything you know about their trading, computed from the trades\n"
             "they logged in this app. It is the only source you may draw on. These\n"
             "headline figures are already worked out — quote them, do not recalculate\n"
@@ -364,6 +488,7 @@ def build_system_prompt(
             f"{headline_facts(summary)}\n\n"
             f"{JUDGEMENT_RULES}\n\n"
             f"{BEHAVIOUR_EVIDENCE}\n\n"
+            f"{RULE_ADHERENCE_GUIDANCE}\n\n"
             "Full breakdown, for anything the headlines do not cover:\n\n"
             f"{json.dumps(asdict(summary), indent=1, default=str)}"
         )

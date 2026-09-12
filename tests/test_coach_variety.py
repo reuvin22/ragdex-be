@@ -133,7 +133,7 @@ def test_the_standing_is_not_an_opening_line() -> None:
     """It opened every single reply, because it led the data block."""
     prompt = _flat(build_system_prompt(_summary(), "Filipino", "Alex"))
 
-    assert "That is context you hold, not a line to open with." in prompt
+    assert "Neither is a line to open every reply with" in prompt
 
 
 def test_the_language_rule_asks_for_a_speaker_not_a_translator(monkeypatch) -> None:

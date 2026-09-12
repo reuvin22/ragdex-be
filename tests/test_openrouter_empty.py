@@ -60,18 +60,20 @@ async def _ask(settings=None):
 
 
 def test_a_truncated_reply_says_it_ran_out_of_room(monkeypatch, caplog) -> None:
-    """Distinct from an empty one: this is a budget to raise, not a model that
-    said nothing."""
+    """Distinct from an empty one: this is a budget that was too small, not a
+    model that said nothing. Retried first; this fake never relents, so it ends
+    at the ceiling and reports the truncation."""
     _reply(
         monkeypatch,
         {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]},
     )
 
-    with caplog.at_level(logging.ERROR), pytest.raises(AppError) as caught:
+    with caplog.at_level(logging.WARNING), pytest.raises(AppError) as caught:
         await_sync(_ask())
 
     assert "ran out of room" in caught.value.message
-    assert "OPENROUTER_MAX_TOKENS" in caplog.text
+    assert "The budget ran out before the answer began." in caplog.text
+    assert "Retrying the same request" in caplog.text
 
 
 def test_reasoning_only_is_named_in_the_log(monkeypatch, caplog) -> None:
@@ -142,3 +144,68 @@ def await_sync(coroutine):
     import asyncio
 
     return asyncio.run(coroutine)
+
+
+def test_a_truncated_reply_is_retried_with_more_room(monkeypatch) -> None:
+    """A model that thinks its way through the whole budget is a number that
+    was too small, not a broken coach. A slower reply beats an error."""
+    budgets: list[int] = []
+    replies = [
+        {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]},
+        _message(content="Take smaller size tomorrow."),
+    ]
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, *, json, headers):
+            budgets.append(json["max_tokens"])
+            return httpx.Response(200, json=replies[len(budgets) - 1])
+
+    monkeypatch.setattr(openrouter.httpx, "AsyncClient", FakeClient)
+
+    completion = await_sync(_ask(_settings(openrouter_max_tokens=1_000)))
+
+    assert budgets == [1_000, 2_000]
+    assert completion.text == "Take smaller size tomorrow."
+
+
+def test_the_retry_stops_at_the_ceiling(monkeypatch, caplog) -> None:
+    """Past the ceiling the problem is the prompt, not the room."""
+    calls: list[int] = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, *, json, headers):
+            calls.append(json["max_tokens"])
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": ""}, "finish_reason": "length"}
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(openrouter.httpx, "AsyncClient", FakeClient)
+
+    with pytest.raises(AppError):
+        await_sync(_ask(_settings(openrouter_max_tokens=openrouter._RETRY_CEILING)))
+
+    # Already at the ceiling, so it fails rather than looping.
+    assert calls == [openrouter._RETRY_CEILING]
