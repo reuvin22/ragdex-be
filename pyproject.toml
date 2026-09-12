@@ -53,6 +53,9 @@ ignore = ["B008"]  # FastAPI's Depends() in defaults is the documented idiom.
 # the only thing Gmail, Outlook and Apple Mail all render the same way — and
 # wrapping one would change what is sent.
 "app/services/email_template.py" = ["E501"]
+# Seed data. S311 flags random for cryptographic use; this generates fake
+# trades, where reproducibility is the requirement and secrecy is not one.
+"scripts/*" = ["S311"]
 
 [tool.mypy]
 python_version = "3.11"
