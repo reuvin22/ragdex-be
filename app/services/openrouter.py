@@ -24,10 +24,15 @@ _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 # Free models rate-limit hard and independently, so a request carries a list
 # and OpenRouter falls through on 429. Kept in step with api/_openrouter.ts.
+# Free models lead, deliberately. These are the fallback when OPENROUTER_MODEL
+# is unset, and an unconfigured deployment is exactly the one least likely to
+# have credit on the account — leading with a paid model meant the default
+# answered 402 rather than working. A paid model belongs in OPENROUTER_MODEL,
+# chosen on purpose, not in the path taken when nobody chose anything.
 DEFAULT_MODELS = (
-    "meta-llama/llama-3.2-3b-instruct",
     "nex-agi/nex-n2.5-mini:free",
     "nex-agi/nex-n2.5-pro:free",
+    "meta-llama/llama-3.2-3b-instruct",
 )
 
 # Some open models narrate their own thinking. None of it should reach a user.
@@ -110,6 +115,23 @@ async def complete(
             "The coach is rate limited right now. Try again shortly.",
             status_code=429,
             code="rate_limited",
+        )
+
+    if response.status_code == 402:
+        # Not a fault, a bill. Every paid model answers 402 on an account with
+        # no credit, and the generic message sent whoever deployed this looking
+        # for a bug that was not there.
+        logger.error(
+            "OpenRouter refused for payment (402). The configured models are %s — "
+            "a paid model needs credit on the OpenRouter account, and a chain "
+            "ending in a ':free' model degrades instead of failing.",
+            ", ".join(chain),
+        )
+        raise AppError(
+            "The coach is out of credit. Ask whoever runs this to top up "
+            "OpenRouter or switch to a free model.",
+            status_code=502,
+            code="no_credit",
         )
 
     if response.status_code >= 400:

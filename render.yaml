@@ -63,26 +63,23 @@ services:
       # two routes are the only thing that stops working.
       - key: OPENROUTER_API_KEY
         sync: false
-      # OpenRouter ids are namespaced by provider: "openai/gpt-4", never the
-      # bare "gpt-4" you would send to OpenAI directly. An unnamespaced slug
-      # is rejected before the model is ever reached, and the rejection
-      # arrives at the client as the generic "The coach could not answer just
-      # now." — with the real reason only in the log.
-      #
       # A chain, not one slug. configured_models() splits this on commas and
-      # hands the whole list to OpenRouter, which falls through when a model
-      # is rate limited or unavailable. A single slug throws that away and
-      # leaves the coach with no second chance.
+      # hands the whole list to OpenRouter, which falls through when a model is
+      # rate limited or unavailable. A single slug throws that away and leaves
+      # the coach with no second chance — which is how a 402 became a dead end
+      # rather than a degraded answer.
       #
-      # openai/gpt-4 is the original 2023 model and the most expensive in its
-      # family by a wide margin — $30/M in, $60/M out, against $0.15/$0.60 for
-      # openai/gpt-4o-mini, which is both newer and better. That matters here
-      # because build_system_prompt() sends the whole playbook plus the full
-      # stats JSON on EVERY message, so the input side is large and paid for
-      # each turn. The two free models trail it so the coach degrades instead
-      # of failing when credit runs out.
+      # Ids are namespaced by provider: "openai/gpt-4o-mini", never the bare
+      # "gpt-4o-mini" you would send to OpenAI directly. An unnamespaced slug is
+      # rejected before any model is reached.
+      #
+      # Free models here so this works on an account with no credit. Adding a
+      # paid one is worthwhile — build_system_prompt() sends the whole playbook
+      # plus the full stats JSON on EVERY message, so quality shows — but put it
+      # first and leave the free ones trailing, so running out of credit
+      # degrades the coach instead of breaking it.
       - key: OPENROUTER_MODEL
-        value: openai/gpt-4,nex-agi/nex-n2.5-mini:free,nex-agi/nex-n2.5-pro:free
+        value: nex-agi/nex-n2.5-mini:free,nex-agi/nex-n2.5-pro:free
 
       # ---------------------------------------------------------------- auth
       #
