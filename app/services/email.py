@@ -40,8 +40,23 @@ class CooldownError(AppError):
         )
 
 
+def missing_settings(settings: Settings) -> list[str]:
+    """Which Brevo variables are absent, by name.
+
+    Named rather than counted, because "not configured" sends whoever is
+    deploying back to the documentation to work out which of the two it is.
+    Variable names are not secrets; the values are, and those never appear.
+    """
+    missing = []
+    if settings.brevo_api_key is None:
+        missing.append("BREVO_API_KEY")
+    if not settings.brevo_sender_email:
+        missing.append("BREVO_SENDER_EMAIL")
+    return missing
+
+
 def is_configured(settings: Settings) -> bool:
-    return settings.brevo_api_key is not None and bool(settings.brevo_sender_email)
+    return not missing_settings(settings)
 
 
 def check_cooldown(uid: str) -> None:
@@ -59,9 +74,16 @@ async def send_verification(
     from Identity Toolkit and carried by this message, so exactly one email
     goes out rather than ours plus an unbranded duplicate.
     """
-    if settings.brevo_api_key is None or not settings.brevo_sender_email:
+    # Bound to a local so the type narrows: missing_settings rules None out,
+    # but only the explicit check tells the checker that.
+    api_key = settings.brevo_api_key
+    absent = missing_settings(settings)
+
+    if absent or api_key is None:
         raise AppError(
-            "Email sending is not configured on the server.",
+            "Email sending is not configured on the server: "
+            + ", ".join(absent)
+            + " not set.",
             status_code=501,
             code="not_configured",
         )
@@ -88,7 +110,7 @@ async def send_verification(
             response = await client.post(
                 _ENDPOINT,
                 headers={
-                    "api-key": settings.brevo_api_key.get_secret_value(),
+                    "api-key": api_key.get_secret_value(),
                     "content-type": "application/json",
                     "accept": "application/json",
                 },

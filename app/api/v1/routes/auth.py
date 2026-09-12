@@ -185,9 +185,12 @@ async def send_verification(user: ReadUser, settings: AppSettings) -> Verificati
     if not record.email:
         raise AppError("This account has no email address.", code="no_email")
 
-    if not email_service.is_configured(settings):
+    absent = email_service.missing_settings(settings)
+    if absent:
         raise AppError(
-            "Email sending is not configured on the server.",
+            "Email sending is not configured on the server: "
+            + ", ".join(absent)
+            + " not set.",
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             code="not_configured",
         )

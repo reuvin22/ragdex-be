@@ -11,8 +11,10 @@ import logging
 from fastapi import APIRouter, Response, status
 
 from app.api.deps import AppSettings
+from app.core.config import get_settings
 from app.db.firestore import get_client
 from app.schemas.common import HealthResponse, ReadyResponse
+from app.services import email as email_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,13 @@ async def ready(response: Response) -> ReadyResponse:
         firestore_ok = False
         checks["firestore"] = type(exc).__name__
         logger.warning("Readiness check failed: %s", type(exc).__name__)
+
+    # Reported, not enforced. A missing mail key breaks sign-up confirmation and
+    # nothing else, so it must not take the service out of rotation — but it is
+    # the kind of thing that is otherwise only discovered by a user failing to
+    # get in, so it belongs somewhere you can curl.
+    absent = email_service.missing_settings(get_settings())
+    checks["email"] = "ok" if not absent else "missing " + ", ".join(absent)
 
     if not firestore_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
