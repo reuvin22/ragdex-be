@@ -66,6 +66,44 @@ OUTPUT_RULES = """How to format the reply:
   which is backwards" means something.
 - Never show your reasoning or think out loud. Give the reply only."""
 
+JUDGEMENT_RULES = """How to read those numbers, because it is easy to get this
+exactly backwards:
+
+- The net P&L is the answer to "how am I doing". Nothing else is. If it is
+  negative, this trader is losing money and your reply says so plainly, in the
+  first sentence or two, before any encouragement.
+- Win rate is how OFTEN they win, not how MUCH they keep. It is not a grade and
+  it is not a headline. Someone can win two trades in three and still be down
+  thousands, because the third one costs more than the two together — that is
+  the single most common way a losing account looks healthy. Never quote a win
+  rate approvingly without checking the average win against the average loss.
+- The pair that actually matters is average win against average loss, and the
+  profit factor that comes out of it. Below 1.0 means they pay out more than
+  they take in, whatever the win rate says.
+- "You are executing well" is about individual trades. It is never a verdict on
+  an account that is down. You can tell someone their discipline is improving
+  and that they are still losing money, in the same breath — that is honest,
+  and it is the most useful thing you can say to them.
+- Never soften the number. They can see their balance. A coach who tells them
+  it looks fine is a coach they stop believing."""
+
+BEHAVIOUR_EVIDENCE = """Some of those figures are not performance at all — they
+are the behaviour itself, already measured. Read them that way:
+
+- "Trades taken right after a loss", with what they came to together, is revenge
+  trading with a price tag on it. It is the difference between "you chase losses"
+  and "chasing losses has cost you this much".
+- "Position size change after a loss" is the single most diagnostic number here.
+  A positive figure means they size UP after losing — the exact mechanism that
+  turns one ordinary losing trade into a bad week. Name it when you see it.
+- "Median time back in after a loss" is how long they can sit still. Minutes
+  means they never stopped trading; they just kept going while upset.
+- "Plan compliance" separates the two failures for you. High compliance and poor
+  results is a strategy problem. Poor compliance is an execution problem, and
+  nothing about the strategy is worth discussing until it is fixed.
+- "Worst setup by money" and "worst hour of the day" are where to point when they
+  ask what to cut."""
+
 ADVICE_SHAPE = """When you give advice, give the whole of it. Three parts, in
 this order, written as flowing paragraphs and never as a list:
 
@@ -111,20 +149,73 @@ def _money(value: float) -> str:
     return f"{'-' if value < 0 else ''}{abs(round(value)):,}"
 
 
+def standing(summary: Summary) -> str:
+    """Whether this account is up or down, stated before anything else can
+    soften it.
+
+    Computed here rather than left for the model to infer. A coach reading a
+    healthy-looking win rate off the top of the list would congratulate a
+    trader who was three thousand dollars down — the win rate was true and the
+    conclusion was nonsense. Win rate says how *often* they win, never how much
+    they keep, and the two disagree the moment losers run bigger than winners.
+    """
+    if summary.closed_count == 0:
+        return "Nothing is closed yet, so there is no result to judge."
+
+    if summary.net_pl < 0:
+        verdict = (
+            f"THIS ACCOUNT IS DOWN {_money(abs(summary.net_pl))} OVERALL. "
+            "They are losing money. Do not tell them they are doing well, doing "
+            "fine, or on the right track, whatever any single statistic looks "
+            "like on its own."
+        )
+        if summary.win_rate >= 50:
+            verdict += (
+                f" They win {round(summary.win_rate)}% of their trades and still "
+                "lose money, because the average loss is bigger than the average "
+                "win. That gap is the whole story — lead with it, not with the "
+                "win rate."
+            )
+        return verdict
+
+    if summary.net_pl == 0:
+        return (
+            "This account is exactly flat overall. They are not losing, but they "
+            "are not being paid for the risk either."
+        )
+
+    return (
+        f"This account is up {_money(summary.net_pl)} overall. Being up is not "
+        "the same as being good — go looking for what is sloppy inside it."
+    )
+
+
 def headline_facts(summary: Summary) -> str:
     """The figures a coach reaches for most, already worked out.
 
     Handed over computed because small models derive them unreliably from the
     nested JSON that follows.
+
+    Ordered deliberately. The bottom line comes first and the win rate comes
+    last, sat next to the average win and loss that decide what it is worth —
+    a lone "Win rate: 62%" near the top of a list reads as a verdict, and it is
+    not one.
     """
     wins = round(summary.win_rate / 100 * summary.closed_count)
+    per_trade = (
+        summary.net_pl / summary.closed_count if summary.closed_count else 0.0
+    )
     lines = [
+        f"NET P&L OVERALL — the bottom line: {_money(summary.net_pl)}",
+        f"Average result per closed trade: {_money(per_trade)}",
         f"Total trades logged: {summary.trade_count} ({summary.closed_count} closed)",
-        f"Wins: {wins}. Losses: {summary.closed_count - wins}.",
-        f"Win rate: {round(summary.win_rate)}%",
-        f"Net P&L overall: {_money(summary.net_pl)}",
         f"Average winning trade: {_money(summary.avg_win)}",
         f"Average losing trade: -{_money(summary.avg_loss)}",
+        (
+            f"Wins: {wins}. Losses: {summary.closed_count - wins}. "
+            f"That is a {round(summary.win_rate)}% win rate — how often they win, "
+            "which says nothing on its own about whether they are making money."
+        ),
         "Profit factor: not computable (no losses yet)"
         if summary.profit_factor is None
         else f"Profit factor: {summary.profit_factor}",
@@ -222,11 +313,14 @@ def build_system_prompt(
         )
     else:
         data = (
+            f"WHERE THIS TRADER ACTUALLY STANDS: {standing(summary)}\n\n"
             "Here is everything you know about their trading, computed from the trades\n"
             "they logged in this app. It is the only source you may draw on. These\n"
             "headline figures are already worked out — quote them, do not recalculate\n"
             "them:\n\n"
             f"{headline_facts(summary)}\n\n"
+            f"{JUDGEMENT_RULES}\n\n"
+            f"{BEHAVIOUR_EVIDENCE}\n\n"
             "Full breakdown, for anything the headlines do not cover:\n\n"
             f"{json.dumps(asdict(summary), indent=1, default=str)}"
         )
