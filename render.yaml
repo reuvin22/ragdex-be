@@ -146,6 +146,19 @@ services:
       - key: BREVO_SENDER_NAME
         value: RagDex
 
+      # Application-level encryption for journal content. Firestore already
+      # encrypts at rest with Google's keys; this keeps values unreadable to
+      # anyone reaching the database rather than the app — console, backup,
+      # leaked service account.
+      #
+      # Generate: python -c "import base64,os;print(
+      #   base64.urlsafe_b64encode(os.urandom(32)).decode())"
+      #
+      # ONCE SET, NEVER CHANGE IT. Everything written under the old key becomes
+      # unreadable, and there is no recovery.
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+
       # Limits. The rate limiter is in-process, so these are per instance —
       # which is exact at one instance and approximate the moment you scale.
       # More than one replica means moving the limiter to Redis.

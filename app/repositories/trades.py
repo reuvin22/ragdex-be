@@ -21,6 +21,7 @@ from google.cloud.firestore_v1 import (
     Query,
 )
 
+from app.core.crypto import seal_fields, unseal_fields
 from app.core.errors import AppError, NotFoundError
 from app.db.firestore import journal_collection
 from app.schemas.trade import Trade, TradeCreate, TradeUpdate
@@ -45,8 +46,52 @@ def _to_datetime(value: Any) -> datetime | None:
     return None
 
 
+# What gets encrypted, and — just as important — what does not.
+#
+# Everything a person wrote or that says what they traded is sealed. The four
+# left out are the ones Firestore itself has to understand:
+#
+#   uid                  every query is filtered by it
+#   createdAt/updatedAt  every list is ordered by it, and paging seeks on it
+#
+# Sealing those would hide little (a uid is not a secret; a timestamp is coarse)
+# and would break listing and paging completely, because Firestore cannot order
+# or range over ciphertext. That is the honest boundary of this approach: the
+# fields you can query are the fields you cannot hide.
+_SEALED = frozenset(
+    {
+        "ticker",
+        "direction",
+        "size",
+        "sizeUnit",
+        "entryPrice",
+        "exitPrice",
+        "entryAt",
+        "exitAt",
+        "setup",
+        "rationale",
+        "stopLoss",
+        "takeProfit",
+        "screenshot",
+        "compliedEntry",
+        "compliedExit",
+        "compliedManagement",
+        "emotionBefore",
+        "emotionDuring",
+        "mistakes",
+        "netPl",
+        "riskReward",
+    }
+)
+
+
+def _readable(snapshot: DocumentSnapshot) -> dict[str, Any]:
+    """The document as the rest of this module expects it: decrypted."""
+    return unseal_fields(snapshot.to_dict() or {}, _SEALED)
+
+
 def _to_trade(snapshot: DocumentSnapshot) -> Trade:
-    data = snapshot.to_dict() or {}
+    data = _readable(snapshot)
     return Trade(
         id=snapshot.id,
         ticker=data.get("ticker", ""),
@@ -228,7 +273,7 @@ def create_trade(uid: str, payload: TradeCreate) -> Trade:
     document[_OWNER] = uid
 
     reference = journal_collection().document()
-    reference.set(document)
+    reference.set(seal_fields(document, _SEALED))
     return _to_trade(reference.get())
 
 
@@ -241,8 +286,10 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
         return _to_trade(existing)
 
     # Derive from the merged view: a partial edit still has to produce a
-    # correct P&L, and the fields it needs may not all be in the patch.
-    merged = {**(existing.to_dict() or {}), **changes}
+    # correct P&L, and the fields it needs may not all be in the patch. The
+    # existing half is decrypted first, or the arithmetic would run on
+    # ciphertext.
+    merged = {**_readable(existing), **changes}
     for key in ("netPl", "riskReward"):
         merged.pop(key, None)
     derived = _derive(merged)
@@ -251,7 +298,7 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
     changes["riskReward"] = derived.get("riskReward")
     changes["updatedAt"] = SERVER_TIMESTAMP
 
-    reference.update(changes)
+    reference.update(seal_fields(changes, _SEALED))
     # cast because the Firestore stubs type DocumentReference.get() as possibly
     # awaitable; this client is the synchronous one and never returns a future.
     return _to_trade(cast(DocumentSnapshot, reference.get()))

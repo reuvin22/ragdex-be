@@ -16,8 +16,10 @@ from fastapi import APIRouter, Query
 from firebase_admin import auth as firebase_auth
 
 from app.api.deps import ReadUser, StandardRateLimit
+from app.core.errors import AppError
+from app.core.threadkey import derive_thread_key
 from app.repositories import directory as directory_repo
-from app.schemas.chat import ChatToken
+from app.schemas.chat import ChatToken, ThreadKey
 from app.schemas.common import ErrorResponse
 from app.schemas.directory import DirectoryResults
 
@@ -61,3 +63,28 @@ async def search_directory(
     bounded, the caller is filtered out, and only four fields come back.
     """
     return DirectoryResults(results=directory_repo.search(q, exclude_uid=user.uid))
+
+
+@router.get("/key/{uid}", response_model=ThreadKey, summary="Key for one conversation")
+async def thread_key(user: ReadUser, uid: str) -> ThreadKey:
+    """The symmetric key for the conversation with `uid`.
+
+    Chat is encrypted in the browser, not here. That is forced by the design:
+    messages go straight from one browser to the Realtime Database over a
+    websocket — which is what makes them arrive in under a second — so this
+    service never sees them and could not encrypt them if it wanted to.
+
+    Both participants derive the same key because it is derived from the same
+    thread id, and the thread id is the two uids sorted. Nobody else can, because
+    the derivation is an HMAC under a secret only this service holds.
+
+    This is not end-to-end encryption against *us*: we can derive any key, so we
+    could read any conversation. What it does is make the stored messages
+    unreadable to anyone who reaches the database instead of the application —
+    the console, a backup, a leaked service account. That is the threat this
+    answers, and it is worth being exact about which one it is.
+    """
+    if uid == user.uid:
+        raise AppError("You cannot open a conversation with yourself.", code="invalid")
+
+    return ThreadKey(key=derive_thread_key(user.uid, uid))

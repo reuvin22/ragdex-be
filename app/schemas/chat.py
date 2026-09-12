@@ -18,3 +18,13 @@ class ChatToken(BaseModel):
     """
 
     token: str
+
+
+class ThreadKey(BaseModel):
+    """A base64 AES-256 key for one conversation.
+
+    Handed to the browser because the browser is what encrypts: chat messages
+    go straight to the Realtime Database, so this service never handles them.
+    """
+
+    key: str
