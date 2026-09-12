@@ -143,6 +143,35 @@ def headline_facts(summary: Summary) -> str:
     return "\n".join(f"- {line}" for line in lines)
 
 
+def language_rule(language: str) -> str:
+    """The one instruction that has to survive a long prompt.
+
+    Stated twice, and both times at an edge. Buried between the playbook and a
+    multi-kilobyte stats dump it was reliably ignored by smaller models — the
+    well-documented habit of attending to the start and end of a context and
+    skimming the middle. So it closes the system prompt, and it is repeated in
+    a short message placed after the conversation, immediately before the model
+    generates, where nothing can bury it.
+
+    Blunt on purpose. "Reply in Filipino" leaves room to answer in English
+    about Filipino; naming the failure closes it.
+    """
+    # Skipped when the choice is English, where it would read as the nonsense
+    # "do not write in English unless English is English" — a contradiction is
+    # the last thing to hand a model you are already struggling to instruct.
+    not_english = (
+        "" if language.strip().lower() == "english" else "Do not write in English. "
+    )
+
+    return (
+        f"LANGUAGE: write your entire reply in {language}. "
+        f"Every sentence, including headings and any numbered points. "
+        f"{not_english}"
+        f"If the trader writes to you in another language, still answer in "
+        f"{language} unless they explicitly ask you to switch."
+    )
+
+
 def build_system_prompt(
     summary: Summary | None, language: str, display_name: str
 ) -> str:
@@ -175,10 +204,9 @@ This is the coaching playbook you work from. It is who you are:
 
 {OUTPUT_RULES}
 
-Reply in {language}. Every word of it. If they write to you in a different
-language, still reply in {language} unless they explicitly ask you to switch.
+{data}
 
-{data}"""
+{language_rule(language)}"""
 
 
 async def ask(
@@ -201,5 +229,10 @@ async def ask(
             {"role": "user" if turn.role == "user" else "assistant", "content": turn.text}
         )
     messages.append({"role": "user", "content": message})
+
+    # Last, so it is the freshest thing in the context when generation starts.
+    # The same rule is already at the end of the system prompt; a long history
+    # pushes that far enough back that smaller models lose it again.
+    messages.append({"role": "system", "content": language_rule(language)})
 
     return await openrouter.complete(messages=messages, settings=settings)

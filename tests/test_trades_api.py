@@ -6,10 +6,12 @@ and that the server owns the computed figures — not Firestore.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from app.repositories import trades as repo
 from app.schemas.trade import Trade
+from google.api_core.exceptions import FailedPrecondition
 
 
 def _stored(**overrides) -> Trade:
@@ -73,3 +75,32 @@ def test_delete_returns_no_content(client, monkeypatch) -> None:
 
     response = client.delete("/api/v1/trades/abc123")
     assert response.status_code == 204
+
+
+def test_a_missing_index_is_not_reported_as_a_server_bug(
+    client, monkeypatch, caplog
+) -> None:
+    """Firestore's FAILED_PRECONDITION means an index has not been deployed.
+
+    It used to fall through to the generic 500, so a deployment step that was
+    simply never run looked identical to a crash. The console URL Firestore
+    supplies belongs in the log, where it is actionable, and nowhere near the
+    response — it names collections and fields.
+    """
+    url = "https://console.firebase.google.com/v1/r/project/p/firestore/indexes?create_composite=Cg"
+
+    def fake_list(uid, *, limit, cursor):
+        raise FailedPrecondition(
+            f"400 The query requires an index. Create it here: {url}"
+        )
+
+    monkeypatch.setattr(repo, "list_trades", fake_list)
+
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/api/v1/trades")
+
+    assert response.status_code == 503
+    body = response.json()["error"]
+    assert body["code"] == "database_not_ready"
+    assert url not in response.text
+    assert url in caplog.text

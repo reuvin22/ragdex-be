@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from google.api_core.exceptions import FailedPrecondition
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,40 @@ def register_exception_handlers(app: FastAPI) -> None:
                     request,
                     fields=fields,
                 )
+            ),
+        )
+
+    @app.exception_handler(FailedPrecondition)
+    async def _failed_precondition(
+        request: Request, exc: FailedPrecondition
+    ) -> JSONResponse:
+        # Firestore raises this when a query needs a composite index that has
+        # not been deployed yet, or is still building. That is a deployment gap
+        # rather than a bad request, and as a bare 500 it cost a traceback to
+        # identify something the error already stated plainly. The message
+        # Firestore returns carries a console URL that creates the index, so it
+        # goes to the log verbatim — and no further, since it names collections
+        # and fields.
+        detail = getattr(exc, "message", str(exc))
+        missing_index = "index" in detail.lower()
+
+        logger.error(
+            "Firestore refused a query: %s",
+            detail,
+            extra={"request_id": getattr(request.state, "request_id", None)},
+        )
+
+        message = (
+            "The database is still preparing this query. Try again in a few minutes."
+            if missing_index
+            else "The database refused that request."
+        )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_payload(
+                "database_not_ready" if missing_index else "database_error",
+                message,
+                request,
             ),
         )
 
