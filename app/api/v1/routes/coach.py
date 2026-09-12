@@ -55,12 +55,23 @@ async def chat(
         language=payload.language,
         display_name=user.name or "",
         settings=settings,
+        image=payload.image,
     )
 
     # After the model answered. A failed request leaves the stored conversation
     # exactly as it was, so a retry does not replay a question twice.
+    #
+    # The chart itself is not stored. Forty turns of inline screenshots would
+    # pass a Firestore document's one-megabyte ceiling in a handful of
+    # messages, and the whole conversation would stop loading rather than one
+    # image going missing. What is kept is that a chart was there, so the
+    # thread still reads correctly on the next visit.
+    question = payload.message
+    if payload.image:
+        question = f"{question} [chart attached]".strip()
+
     conversations_repo.store_exchange(
-        user.uid, question=payload.message, answer=completion.text
+        user.uid, question=question, answer=completion.text
     )
 
     return CoachReply(

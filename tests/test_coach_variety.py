@@ -148,3 +148,16 @@ def test_the_coach_runs_warmer_than_the_default(monkeypatch) -> None:
     captured = _ask(monkeypatch, [])
 
     assert captured["kwargs"]["temperature"] == 0.9
+
+
+def test_steps_may_be_a_list_but_prose_may_not() -> None:
+    """The app renders numbered and dashed lines as real lists now, so the
+    blanket ban on them is gone — but only for content that genuinely is a
+    list. Reasoning turned into bullets reads like a form."""
+    prompt = _flat(build_system_prompt(_summary(), "English", "Alex"))
+
+    assert "Write a numbered list" in prompt
+    assert "when the order matters" in prompt
+    assert "Do not turn prose into a list to look organised" in prompt
+    # Everything else still lands on screen as literal characters.
+    assert "Never use headings, bold text, tables, links or markdown" in prompt

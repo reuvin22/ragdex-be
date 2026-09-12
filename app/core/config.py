@@ -133,6 +133,9 @@ class Settings(BaseSettings):
     # doubles it once on a truncated reply rather than making every request pay
     # for the worst case.
     openrouter_max_tokens: int = 4_000
+    # Vision is a different model list: a text model handed a chart answers
+    # about the words and silently ignores the picture.
+    openrouter_vision_model: str = ""
 
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.

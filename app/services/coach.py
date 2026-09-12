@@ -19,6 +19,7 @@ import re
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from app.core.config import Settings
 from app.schemas.coach import CoachTurn
@@ -52,13 +53,25 @@ what to buy or sell. You talk about patterns in what they have already done."""
 
 OUTPUT_RULES = """How to format the reply:
 
-- Plain conversational sentences only. Never use bullet points, headings, bold
-  text, numbered lists, tables or markdown of any kind, however the playbook
-  above is laid out — that is a document for you to read, not a style to copy.
-  The app prints your reply as plain paragraphs, so a star or a hash lands on
-  their screen as a star or a hash.
+- Prose by default. Never use headings, bold text, tables, links or markdown of
+  any kind, however the playbook above is laid out — that is a document for you
+  to read, not a style to copy. A star or a hash lands on their screen as a star
+  or a hash.
 - Break it into short paragraphs, one idea each, separated by a blank line. Two
   or three paragraphs for a real question; a sentence or two for a small one.
+- Lists are the one exception, and only when the content genuinely is one.
+  Write a numbered list — "1. ", "2. " each on its own line — when the order
+  matters and they are meant to do the steps in sequence. Write a dashed list
+  — "- " on its own line — when it is a set of things that stand on their own
+  and could be done in any order. The app renders both properly.
+  Which one you reach for is a claim about the content, so make it a true one:
+  numbering things that have no order invents a sequence they will try to
+  follow, and bulleting a real procedure loses the one thing they needed.
+- Do not turn prose into a list to look organised. One thing to do is a
+  sentence, not a list of one. Reasoning, judgement and anything with a
+  "because" in it belongs in paragraphs — a list of clauses reads like a form
+  and strips out exactly the part that makes advice persuasive. The test is
+  whether they would tick the items off; if not, write it as prose.
 - Write so that anyone can follow it — someone's parent, someone's younger
   brother, someone who started trading last month. No jargon. If a trading word
   is the only word that fits, say it and explain it in the same breath. "Your
@@ -610,6 +623,40 @@ def _no_repeats(history: list[CoachTurn]) -> str:
     )
 
 
+CHART_RULES = """The trader has attached a chart. Read it and talk about what is
+actually on it — the entry and exit if they are marked, where the stop sat, what
+the structure was doing, how it lines up with the setup they say they trade.
+
+Two limits, and they are not negotiable. You describe what happened on the chart
+they are showing you; you never say what it will do next, never call it a buy or
+a sell, and never tell them what to do with the position. And you say only what
+you can actually see: if the timeframe, the instrument or the levels are not
+legible, say that rather than guessing at them. A confident description of a
+chart you could not read is worse than admitting the screenshot is too small.
+
+If it is not a chart at all, say so in one line and ask for one."""
+
+
+def _chart_message(message: str, image: str) -> dict[str, Any]:
+    """One user turn carrying a chart, in the shape OpenRouter expects.
+
+    The image travels inline as a data URL rather than as a link. A URL would
+    mean the server fetching whatever a caller pointed it at.
+    """
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "text",
+                # A bare image with no question still needs one, or the model
+                # describes the picture back at them like a caption.
+                "text": message or "Here is a chart from this trade. What do you see?",
+            },
+            {"type": "image_url", "image_url": {"url": image}},
+        ],
+    }
+
+
 async def ask(
     *,
     history: list[CoachTurn],
@@ -618,18 +665,22 @@ async def ask(
     language: str,
     display_name: str,
     settings: Settings,
+    image: str | None = None,
 ) -> openrouter.Completion:
-    messages = [
-        {
-            "role": "system",
-            "content": build_system_prompt(summary, language, display_name),
-        }
-    ]
+    prompt = build_system_prompt(summary, language, display_name)
+    if image:
+        prompt = f"{prompt}\n\n{CHART_RULES}"
+
+    messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
+
     for turn in history:
         messages.append(
             {"role": "user" if turn.role == "user" else "assistant", "content": turn.text}
         )
-    messages.append({"role": "user", "content": message})
+
+    messages.append(
+        _chart_message(message, image) if image else {"role": "user", "content": message}
+    )
 
     # Last, so these are the freshest thing in the context when generation
     # starts. Both rules are already in the system prompt; a long history pushes
@@ -646,5 +697,12 @@ async def ask(
     # same paragraph twice, and a coach with a fixed data set to talk about is
     # already pulled hard towards repeating itself.
     return await openrouter.complete(
-        messages=messages, settings=settings, temperature=0.9
+        messages=messages,
+        settings=settings,
+        temperature=0.9,
+        # A chart has to go to a model that can see one. The text chain would
+        # not error — it would answer about the words and quietly ignore the
+        # picture, which reads as the coach having an opinion about a chart it
+        # never looked at.
+        models=openrouter.vision_models(settings) if image else None,
     )

@@ -35,6 +35,18 @@ DEFAULT_MODELS = (
     "meta-llama/llama-3.2-3b-instruct",
 )
 
+# A chart goes to a model that can see one, which none of the above can. Kept
+# separate rather than folded into the chain above because a text model handed
+# an image does not fail loudly — it answers about the words and ignores the
+# picture, which looks like the coach having an opinion about a chart it never
+# saw. Override with OPENROUTER_VISION_MODEL; free vision slugs come and go, so
+# this is the setting most likely to need changing.
+DEFAULT_VISION_MODELS = (
+    "meta-llama/llama-3.2-11b-vision-instruct:free",
+    "qwen/qwen2.5-vl-32b-instruct:free",
+    "google/gemini-flash-1.5",
+)
+
 # How far the budget may be stretched when a reply is cut off before it starts.
 # A ceiling rather than no limit: past this the problem is the prompt, not the
 # room, and doubling forever only makes each failure slower and dearer.
@@ -56,13 +68,20 @@ class Completion:
     model: str
 
 
-def configured_models(settings: Settings) -> list[str]:
+def _chain(configured: str, fallback: tuple[str, ...]) -> list[str]:
     """A single slug or a comma-separated fallback chain."""
-    if not settings.openrouter_model:
-        return list(DEFAULT_MODELS)
-    return [
-        slug.strip() for slug in settings.openrouter_model.split(",") if slug.strip()
-    ]
+    if not configured:
+        return list(fallback)
+    return [slug.strip() for slug in configured.split(",") if slug.strip()]
+
+
+def configured_models(settings: Settings) -> list[str]:
+    return _chain(settings.openrouter_model, DEFAULT_MODELS)
+
+
+def vision_models(settings: Settings) -> list[str]:
+    """Models for a request carrying a chart."""
+    return _chain(settings.openrouter_vision_model, DEFAULT_VISION_MODELS)
 
 
 def strip_reasoning(text: str) -> str:
@@ -144,7 +163,7 @@ async def _post(
 
 async def complete(
     *,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     settings: Settings,
     models: list[str] | None = None,
     temperature: float = 0.7,
