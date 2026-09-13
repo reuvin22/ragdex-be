@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -104,3 +105,9 @@ class LeakResponse(BaseModel):
     result: LeakResult | None = None
     trade_count: int
     needed: int | None = None
+    #: When this analysis was actually worked out, and when it is next due.
+    #: Both absent when there is no result to date — the card uses them to say
+    #: how old the finding is, so a monthly reading is not mistaken for a
+    #: reaction to this morning.
+    computed_at: datetime | None = None
+    next_at: datetime | None = None

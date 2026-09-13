@@ -41,6 +41,7 @@ _FIELDS = {
     "max_trades_per_day": "maxTradesPerDay",
     "strategies": "strategies",
     "trading_rules": "tradingRules",
+    "leak_cadence": "leakCadence",
 }
 
 
@@ -88,6 +89,7 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         max_trades_per_day=data.get("maxTradesPerDay"),
         strategies=list(data.get("strategies", [])),
         trading_rules=data.get("tradingRules", ""),
+        leak_cadence=data.get("leakCadence") or "daily",
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),

@@ -22,6 +22,14 @@ MarketType = Literal[
 #: good advice looks like.
 FundingType = Literal["personal", "prop_firm", "demo"]
 
+#: How often the behavioural leak is re-analysed.
+#:
+#: A cadence rather than "every time you look", which is what it used to be —
+#: every dashboard load spent a model call to re-derive a habit that changes
+#: over weeks. It also decides what the finding means: a daily read is about
+#: yesterday's session, a monthly one is about a pattern.
+LeakCadence = Literal["daily", "weekly", "monthly"]
+
 
 class ProfileUpdate(BaseModel):
     """The fields a trader may edit about themselves.
@@ -65,6 +73,7 @@ class ProfileUpdate(BaseModel):
     # matters to one trader is nonsense to another, and a fixed list would
     # collect the ones we thought of rather than the ones they break.
     trading_rules: str | None = Field(default=None, max_length=2_000)
+    leak_cadence: LeakCadence | None = None
 
 
 class Profile(BaseModel):
@@ -90,6 +99,7 @@ class Profile(BaseModel):
     max_trades_per_day: int | None = None
     strategies: list[str] = Field(default_factory=list)
     trading_rules: str = ""
+    leak_cadence: LeakCadence = "daily"
     plan: PlanId = "individual"
     plan_since: datetime | None = None
     created_at: datetime | None = None
