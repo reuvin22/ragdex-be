@@ -67,6 +67,9 @@ class TradeBase(BaseModel):
     emotion_before: str = _short_text()
     emotion_during: str = _short_text()
     mistakes: list[str] = Field(default_factory=list, max_length=20)
+    # Anything the other fields have no box for. Last in the form and last
+    # here: it is the catch-all, not a required part of logging a trade.
+    notes: str = _text()
 
     @field_validator("mistakes")
     @classmethod
@@ -121,6 +124,7 @@ class TradeUpdate(BaseModel):
     emotion_before: str | None = Field(default=None, max_length=120)
     emotion_during: str | None = Field(default=None, max_length=120)
     mistakes: list[str] | None = Field(default=None, max_length=20)
+    notes: str | None = Field(default=None, max_length=2_000)
 
 
 class Trade(TradeBase):

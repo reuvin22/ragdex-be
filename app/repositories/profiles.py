@@ -42,6 +42,7 @@ _FIELDS = {
     "strategies": "strategies",
     "trading_rules": "tradingRules",
     "leak_cadence": "leakCadence",
+    "edge_window": "edgeWindow",
 }
 
 
@@ -90,6 +91,7 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         strategies=list(data.get("strategies", [])),
         trading_rules=data.get("tradingRules", ""),
         leak_cadence=data.get("leakCadence") or "daily",
+        edge_window=data.get("edgeWindow") or "monthly",
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),

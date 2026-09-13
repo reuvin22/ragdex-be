@@ -22,13 +22,17 @@ MarketType = Literal[
 #: good advice looks like.
 FundingType = Literal["personal", "prop_firm", "demo"]
 
-#: How often the behavioural leak is re-analysed.
+#: The three spans the dashboard reads over. Shared, so the two cards offer the
+#: same choices and one can be excluded from the other.
+Period = Literal["daily", "weekly", "monthly"]
+
+#: How often the behavioural reading is re-analysed.
 #:
 #: A cadence rather than "every time you look", which is what it used to be —
 #: every dashboard load spent a model call to re-derive a habit that changes
 #: over weeks. It also decides what the finding means: a daily read is about
 #: yesterday's session, a monthly one is about a pattern.
-LeakCadence = Literal["daily", "weekly", "monthly"]
+LeakCadence = Period
 
 
 class ProfileUpdate(BaseModel):
@@ -74,6 +78,7 @@ class ProfileUpdate(BaseModel):
     # collect the ones we thought of rather than the ones they break.
     trading_rules: str | None = Field(default=None, max_length=2_000)
     leak_cadence: LeakCadence | None = None
+    edge_window: Period | None = None
 
 
 class Profile(BaseModel):
@@ -100,6 +105,10 @@ class Profile(BaseModel):
     strategies: list[str] = Field(default_factory=list)
     trading_rules: str = ""
     leak_cadence: LeakCadence = "daily"
+    # How far back "what is working" looks. A different span from the
+    # behavioural reading on purpose: two cards over the same window tell you
+    # the same thing twice.
+    edge_window: Period = "monthly"
     plan: PlanId = "individual"
     plan_since: datetime | None = None
     created_at: datetime | None = None

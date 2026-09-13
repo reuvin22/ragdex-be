@@ -80,6 +80,7 @@ _SEALED = frozenset(
         "emotionBefore",
         "emotionDuring",
         "mistakes",
+        "notes",
         "netPl",
         "riskReward",
     }
@@ -115,6 +116,7 @@ def _to_trade(snapshot: DocumentSnapshot) -> Trade:
         emotion_before=data.get("emotionBefore", ""),
         emotion_during=data.get("emotionDuring", ""),
         mistakes=list(data.get("mistakes", [])),
+        notes=data.get("notes", ""),
         net_pl=_to_decimal(data.get("netPl")),
         risk_reward=_to_decimal(data.get("riskReward")),
         created_at=_to_datetime(data.get("createdAt")),
@@ -149,6 +151,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "emotion_before": "emotionBefore",
         "emotion_during": "emotionDuring",
         "mistakes": "mistakes",
+        "notes": "notes",
     }
 
     dumped = payload.model_dump(exclude_unset=partial)
