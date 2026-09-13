@@ -63,24 +63,40 @@ def _host(settings: Settings) -> str:
     return f"{settings.r2_account_id}.r2.cloudflarestorage.com"
 
 
-def object_key(uid: str, kind: str, content_type: str) -> str:
-    """Where one upload lives.
+#: The only folders the bucket has. A key naming anything else is not a key
+#: this service issued, whatever else is true of it.
+FOLDERS = frozenset({"profile", "charts", "ai", "messages"})
 
-    The uid is the first segment, which is what makes ownership checkable from
-    the key alone — no lookup, and no way to name someone else's object without
-    naming their uid, which the read endpoint compares against the session.
+
+def object_key(uid: str, kind: str, content_type: str) -> str:
+    """Where one upload lives: `<folder>/<uid>/<random>.<ext>`.
+
+    The uid is the second segment rather than the first, so each category is a
+    top-level prefix that lifecycle rules and the dashboard can address. What
+    matters for access is that the uid is at a *fixed* position — it is still
+    readable off the key with no lookup, which is what lets the read endpoint
+    decide ownership from the name alone.
     """
     extension = ALLOWED_TYPES.get(content_type, "bin")
-    return f"{uid}/{kind}/{uuid.uuid4().hex}.{extension}"
+    return f"{kind}/{uid}/{uuid.uuid4().hex}.{extension}"
 
 
 def owns(uid: str, key: str) -> bool:
     """Whether this key belongs to this trader.
 
-    Rejects traversal outright rather than normalising it: a key with `..` in
+    Positional, not a prefix match: the folder has to be one this service uses
+    and the uid has to be exactly the second segment. Matching a prefix would
+    let `messages/u1extra/...` pass for `u1`, and checking `uid in key` would
+    let it appear anywhere at all.
+
+    Traversal is rejected outright rather than normalised. A key with `..` in
     it is not a near miss to be repaired, it is someone reaching.
     """
-    return ".." not in key and key.startswith(f"{uid}/")
+    if ".." in key:
+        return False
+
+    parts = key.split("/")
+    return len(parts) >= 3 and parts[0] in FOLDERS and parts[1] == uid
 
 
 def _presign(

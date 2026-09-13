@@ -36,7 +36,7 @@ def _query(url: str) -> dict[str, str]:
 
 def test_a_put_url_carries_a_complete_signature() -> None:
     url = r2.presign_put(
-        key="u1/chat/abc.jpg",
+        key="messages/u1/abc.jpg",
         content_type="image/jpeg",
         content_length=2_048,
         settings=_settings(),
@@ -52,7 +52,7 @@ def test_a_put_url_carries_a_complete_signature() -> None:
 
 def test_the_url_points_at_the_bucket_and_key() -> None:
     url = r2.presign_put(
-        key="u1/chart/abc.png",
+        key="charts/u1/abc.png",
         content_type="image/png",
         content_length=10,
         settings=_settings(),
@@ -60,7 +60,7 @@ def test_the_url_points_at_the_bucket_and_key() -> None:
     parts = urlparse(url)
 
     assert parts.hostname == "acct123.r2.cloudflarestorage.com"
-    assert parts.path == "/ragdex-images/u1/chart/abc.png"
+    assert parts.path == "/ragdex-images/charts/u1/abc.png"
 
 
 def test_size_and_type_are_both_signed() -> None:
@@ -69,7 +69,7 @@ def test_size_and_type_are_both_signed() -> None:
     900MB."""
     query = _query(
         r2.presign_put(
-            key="u1/chat/abc.jpg",
+            key="messages/u1/abc.jpg",
             content_type="image/jpeg",
             content_length=2_048,
             settings=_settings(),
@@ -83,7 +83,7 @@ def test_a_different_size_is_a_different_signature() -> None:
     def signature(length: int) -> str:
         return _query(
             r2.presign_put(
-                key="u1/chat/abc.jpg",
+                key="messages/u1/abc.jpg",
                 content_type="image/jpeg",
                 content_length=length,
                 settings=_settings(),
@@ -95,21 +95,21 @@ def test_a_different_size_is_a_different_signature() -> None:
 
 def test_a_read_url_signs_only_the_host() -> None:
     """Nothing to bind on the way out: there is no body and no content type."""
-    query = _query(r2.presign_get(key="u1/chat/abc.jpg", settings=_settings()))
+    query = _query(r2.presign_get(key="messages/u1/abc.jpg", settings=_settings()))
 
     assert query["X-Amz-SignedHeaders"] == "host"
     assert len(query["X-Amz-Signature"]) == 64
 
 
 def test_the_secret_never_reaches_the_url() -> None:
-    url = r2.presign_get(key="u1/chat/abc.jpg", settings=_settings())
+    url = r2.presign_get(key="messages/u1/abc.jpg", settings=_settings())
 
     assert "shhh" not in url
 
 
 def test_unconfigured_storage_says_so_rather_than_signing_nonsense() -> None:
     with pytest.raises(AppError) as caught:
-        r2.presign_get(key="u1/chat/abc.jpg", settings=Settings())
+        r2.presign_get(key="messages/u1/abc.jpg", settings=Settings())
 
     assert caught.value.status_code == 501
 
@@ -117,15 +117,15 @@ def test_unconfigured_storage_says_so_rather_than_signing_nonsense() -> None:
 # -- keys and ownership ----------------------------------------------------
 
 
-def test_a_key_starts_with_the_owner() -> None:
-    key = r2.object_key("trader-1", "chat", "image/png")
+def test_a_key_is_folder_then_owner() -> None:
+    key = r2.object_key("trader-1", "messages", "image/png")
 
-    assert key.startswith("trader-1/chat/")
+    assert key.startswith("messages/trader-1/")
     assert key.endswith(".png")
 
 
 def test_keys_do_not_collide() -> None:
-    made = {r2.object_key("u1", "chat", "image/png") for _ in range(50)}
+    made = {r2.object_key("u1", "messages", "image/png") for _ in range(50)}
 
     assert len(made) == 50
 
@@ -133,18 +133,29 @@ def test_keys_do_not_collide() -> None:
 def test_encrypted_bytes_get_a_neutral_extension() -> None:
     """A chat image is ciphertext by the time it is uploaded, so calling it a
     .png would be a lie that something downstream might act on."""
-    assert r2.object_key("u1", "chat", "application/octet-stream").endswith(".bin")
+    assert r2.object_key("u1", "messages", "application/octet-stream").endswith(".bin")
 
 
 def test_ownership_is_read_off_the_key() -> None:
-    assert r2.owns("u1", "u1/chat/abc.jpg")
-    assert not r2.owns("u1", "u2/chat/abc.jpg")
+    assert r2.owns("u1", "messages/u1/abc.jpg")
+    assert not r2.owns("u1", "messages/u2/abc.jpg")
     # A uid that merely starts the same is not the same uid.
-    assert not r2.owns("u1", "u12/chat/abc.jpg")
+    assert not r2.owns("u1", "messages/u12/abc.jpg")
+
+
+def test_a_folder_outside_the_four_is_not_ours() -> None:
+    """Whatever that key is, this service did not mint it."""
+    assert not r2.owns("u1", "exports/u1/abc.jpg")
+
+
+def test_the_uid_must_be_the_second_segment() -> None:
+    """Not merely present. A prefix or substring match would let a nested path
+    smuggle the uid somewhere it means nothing."""
+    assert not r2.owns("u1", "messages/u2/u1/abc.jpg")
 
 
 def test_traversal_is_refused_rather_than_repaired() -> None:
-    assert not r2.owns("u1", "u1/../u2/chat/abc.jpg")
+    assert not r2.owns("u1", "messages/u1/../u2/abc.jpg")
 
 
 # -- the route -------------------------------------------------------------
@@ -170,12 +181,12 @@ def test_a_slot_is_scoped_to_the_signed_in_trader(
 ) -> None:
     response = client.post(
         "/api/v1/uploads",
-        json={"kind": "chat", "content_type": "image/jpeg", "content_length": 1_000},
+        json={"kind": "messages", "content_type": "image/jpeg", "content_length": 1_000},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["key"].startswith(f"{verified_user.uid}/chat/")
+    assert body["key"].startswith(f"messages/{verified_user.uid}/")
     assert "X-Amz-Signature" in body["url"]
 
 
@@ -183,7 +194,7 @@ def test_an_oversized_image_is_refused_before_it_is_sent(client, storage) -> Non
     response = client.post(
         "/api/v1/uploads",
         json={
-            "kind": "chat",
+            "kind": "messages",
             "content_type": "image/jpeg",
             "content_length": 11 * 1024 * 1024,
         },
@@ -199,7 +210,7 @@ def test_a_type_off_the_allowlist_is_refused(client, storage) -> None:
     response = client.post(
         "/api/v1/uploads",
         json={
-            "kind": "chat",
+            "kind": "messages",
             "content_type": "image/svg+xml",
             "content_length": 1_000,
         },
@@ -211,7 +222,7 @@ def test_a_type_off_the_allowlist_is_refused(client, storage) -> None:
 
 def test_reading_someone_elses_object_is_forbidden(client, storage) -> None:
     response = client.get(
-        "/api/v1/uploads/url", params={"key": "someone-else/chat/a.jpg"}
+        "/api/v1/uploads/url", params={"key": "messages/someone-else/a.jpg"}
     )
 
     assert response.status_code == 403
@@ -222,7 +233,7 @@ def test_reading_your_own_object_returns_a_signed_url(
 ) -> None:
     response = client.get(
         "/api/v1/uploads/url",
-        params={"key": f"{verified_user.uid}/chat/a.jpg"},
+        params={"key": f"messages/{verified_user.uid}/a.jpg"},
     )
 
     assert response.status_code == 200

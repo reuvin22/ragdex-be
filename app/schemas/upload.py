@@ -6,9 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-#: What the image is for. Only the first segment of a key, but it is what keeps
-#: a chat attachment and a coach chart from landing in the same place.
-UploadKind = Literal["chat", "chart", "trade"]
+#: What the image is for, and the folder it lands in.
+#:
+#: The category leads the key rather than the uid. Browsing the bucket is the
+#: smaller reason; the real one is that R2 lifecycle rules match on prefix, so
+#: this layout can say "expire ai/ after ninety days" and leave profile photos
+#: alone. A uid-first layout cannot express that at all.
+UploadKind = Literal["profile", "charts", "ai", "messages"]
 
 
 class UploadRequest(BaseModel):
