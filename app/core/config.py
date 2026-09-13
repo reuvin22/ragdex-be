@@ -137,6 +137,33 @@ class Settings(BaseSettings):
     # about the words and silently ignores the picture.
     openrouter_vision_model: str = ""
 
+    # -- Cloudflare R2 -----------------------------------------------------
+    # Object storage for images. The browser never sees these: the API signs a
+    # short-lived URL and the upload goes straight from the browser to R2, so a
+    # ten-megabyte screenshot never passes through this service.
+    #
+    # The secret is a real credential with write access to the bucket. Treat it
+    # like the service account.
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: SecretStr | None = None
+    r2_bucket: str = ""
+    #: How long a signed URL stays valid. Long enough to upload 10MB on a poor
+    #: connection, short enough that a leaked link is worth little.
+    r2_url_ttl_seconds: int = 600
+
+    #: The largest image accepted, before encryption or encoding overhead.
+    max_upload_bytes: int = 10 * 1024 * 1024
+
+    @property
+    def r2_configured(self) -> bool:
+        return bool(
+            self.r2_account_id
+            and self.r2_access_key_id
+            and self.r2_secret_access_key
+            and self.r2_bucket
+        )
+
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.
     max_request_bytes: int = 256 * 1024

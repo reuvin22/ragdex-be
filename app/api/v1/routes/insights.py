@@ -58,25 +58,28 @@ async def behavioral_leak(
     stored = insights_repo.load(user.uid)
 
     if stored is not None and not refresh:
-        result, computed_at, _ = stored
-        due = insights_repo.next_due(computed_at, profile.leak_cadence, profile.timezone)
+        # Named apart from the freshly computed one below. Reusing one name for
+        # a stored LeakResult and an Optional from the model is what let mypy
+        # see the None check further down as unreachable.
+        cached, cached_at, _ = stored
+        due = insights_repo.next_due(cached_at, profile.leak_cadence, profile.timezone)
         if datetime.now(UTC) < due:
             return LeakResponse(
-                result=result,
+                result=cached,
                 trade_count=len(trades),
-                computed_at=computed_at,
+                computed_at=cached_at,
                 next_at=due,
                 cadence=profile.leak_cadence,
             )
 
-    result = await detect_leak(summarise(trades), settings)
+    fresh = await detect_leak(summarise(trades), settings)
 
-    if result is None:
+    if fresh is None:
         return LeakResponse(result=None, trade_count=len(trades))
 
-    computed_at = insights_repo.store(user.uid, result, trade_count=len(trades))
+    computed_at = insights_repo.store(user.uid, fresh, trade_count=len(trades))
     return LeakResponse(
-        result=result,
+        result=fresh,
         trade_count=len(trades),
         computed_at=computed_at,
         next_at=insights_repo.next_due(

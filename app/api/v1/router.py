@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1.routes import auth, chat, coach, insights, profile, trades
+from app.api.v1.routes import (
+    auth,
+    chat,
+    coach,
+    insights,
+    profile,
+    trades,
+    uploads,
+)
 
 api_router = APIRouter()
 # Auth first: it is the only family reachable without a session.
@@ -18,3 +26,4 @@ api_router.include_router(trades.router)
 api_router.include_router(coach.router)
 api_router.include_router(insights.router)
 api_router.include_router(chat.router)
+api_router.include_router(uploads.router)

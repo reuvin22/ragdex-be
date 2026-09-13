@@ -61,6 +61,22 @@ async def ready(response: Response) -> ReadyResponse:
         "ok" if settings.openrouter_api_key is not None else "missing OPENROUTER_API_KEY"
     )
 
+    # And again for image storage: without it, uploading a chart or a chat
+    # photo answers 501 and the rest of the app is unaffected. Named field by
+    # field, because "R2 is not configured" when three of the four are set is
+    # the least useful thing this endpoint could say.
+    r2_missing = [
+        name
+        for name, value in (
+            ("R2_ACCOUNT_ID", settings.r2_account_id),
+            ("R2_ACCESS_KEY_ID", settings.r2_access_key_id),
+            ("R2_SECRET_ACCESS_KEY", settings.r2_secret_access_key),
+            ("R2_BUCKET", settings.r2_bucket),
+        )
+        if not value
+    ]
+    checks["images"] = "ok" if not r2_missing else "missing " + ", ".join(r2_missing)
+
     if not firestore_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
