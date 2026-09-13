@@ -108,22 +108,38 @@ def test_a_missing_index_is_not_reported_as_a_server_bug(
     assert url in caplog.text
 
 
-def test_a_screenshot_may_be_an_uploaded_key_or_a_link_and_nothing_else() -> None:
+def test_screenshots_may_be_uploaded_keys_or_links_and_nothing_else() -> None:
     """The field takes both shapes since the form offers both. It rejected the
     key shape once, which meant a trade with an uploaded chart could not save
     at all — and a ``javascript:`` URL still must not get through."""
     from app.schemas.trade import TradeCreate
 
-    def screenshot_of(value: str) -> str:
+    def kept(*values: str) -> list[str]:
         return TradeCreate(
-            ticker="EURUSD", direction="Long", screenshot=value
-        ).screenshot
+            ticker="EURUSD", direction="Long", screenshots=list(values)
+        ).screenshots
 
-    assert screenshot_of("charts/uid1/9f8e7d.png") == "charts/uid1/9f8e7d.png"
-    assert screenshot_of("https://tradingview.com/x/abc") == "https://tradingview.com/x/abc"
-    assert screenshot_of("") == ""
+    assert kept("charts/uid1/9f8e7d.png") == ["charts/uid1/9f8e7d.png"]
+    assert kept("https://tradingview.com/x/a") == ["https://tradingview.com/x/a"]
+    assert kept() == []
+
+    # Several charts on one trade, with blanks and a repeat dropped.
+    assert kept(
+        "charts/uid1/a.png", "", "charts/uid1/b.png", "charts/uid1/a.png"
+    ) == ["charts/uid1/a.png", "charts/uid1/b.png"]
 
     rejected = ("javascript:alert(1)", "data:image/png;base64,AAA", "charts/../a.png")
     for value in rejected:
         with pytest.raises(ValidationError):
-            screenshot_of(value)
+            kept(value)
+
+
+def test_a_trade_filed_before_charts_were_plural_still_opens() -> None:
+    """One sealed string under the old key, lifted into the list — the same
+    treatment the session field got when it became plural."""
+    from app.repositories.trades import _screenshots_of
+
+    assert _screenshots_of({"screenshot": "charts/uid1/a.png"}) == ["charts/uid1/a.png"]
+    assert _screenshots_of({"screenshot": ""}) == []
+    assert _screenshots_of({"screenshots": ["a", None, 3, "b"]}) == ["a", "b"]
+    assert _screenshots_of({}) == []

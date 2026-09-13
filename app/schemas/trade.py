@@ -40,6 +40,11 @@ TradingSession = Literal["asia", "london", "newyork"]
 #: share no hour, so a third entry is a mistake rather than a longer trade.
 MAX_SESSIONS = 2
 
+#: How many charts one trade may carry. A trade has an entry, an exit and
+#: usually a higher timeframe for context; past that the trader is filing a
+#: screen recording, and each one costs a signed URL to display.
+MAX_SCREENSHOTS = 6
+
 # Money and sizes are bounded so a typo cannot write an absurd document, and
 # so downstream arithmetic cannot be handed an infinity.
 Money = Annotated[Decimal, Field(ge=-1_000_000_000, le=1_000_000_000)]
@@ -55,6 +60,34 @@ def _text() -> Any:
 
 def _short_text() -> Any:
     return Field(default="", max_length=120)
+
+
+def _checked_screenshots(values: list[str]) -> list[str]:
+    """Links the trader pasted, keys of images uploaded here, or a mix.
+
+    Both shapes are allowed because the form offers both. Nothing else is:
+    a ``javascript:`` or ``data:`` URL stored here would be rendered by the
+    client as a source, and a key carries no scheme, so the two cannot be
+    confused for one another.
+
+    Blanks are dropped and duplicates collapsed — attaching the same chart
+    twice is a double click, not two charts.
+    """
+    kept: list[str] = []
+
+    for value in values:
+        if not value:
+            continue
+        if not value.startswith(("http://", "https://")) and not _STORAGE_KEY.fullmatch(
+            value
+        ):
+            raise ValueError("Must be an http(s) URL or an uploaded image.")
+        if len(value) > 2_000:
+            raise ValueError("That image reference is too long.")
+        if value not in kept:
+            kept.append(value)
+
+    return kept
 
 
 class TradeBase(BaseModel):
@@ -79,7 +112,12 @@ class TradeBase(BaseModel):
     rationale: str = _text()
     stop_loss: Money | None = None
     take_profit: Money | None = None
-    screenshot: str = Field(default="", max_length=2_000)
+    #: Charts for this trade: keys of images uploaded here, links the
+    #: trader pasted, or a mix. Plural because one chart rarely tells the
+    #: story — the setup and the exit are usually two different pictures.
+    screenshots: list[str] = Field(
+        default_factory=list, max_length=MAX_SCREENSHOTS
+    )
 
     complied_entry: Compliance = ""
     complied_exit: Compliance = ""
@@ -105,21 +143,10 @@ class TradeBase(BaseModel):
         # double tap on the button, not a trade that crossed it twice.
         return list(dict.fromkeys(sessions))
 
-    @field_validator("screenshot")
+    @field_validator("screenshots")
     @classmethod
-    def _safe_url(cls, value: str) -> str:
-        """A link the trader pasted, or the key of an image they uploaded.
-
-        Both are allowed because the field takes either. Nothing else is: a
-        ``javascript:`` or ``data:`` URL stored here would be rendered by
-        the client as a link someone might click. A key carries no scheme,
-        so the two shapes cannot be confused for one another.
-        """
-        if not value or value.startswith(("http://", "https://")):
-            return value
-        if _STORAGE_KEY.fullmatch(value):
-            return value
-        raise ValueError("Must be an http(s) URL or an uploaded image.")
+    def _safe_urls(cls, values: list[str]) -> list[str]:
+        return _checked_screenshots(values)
 
     @model_validator(mode="after")
     def _exit_after_entry(self) -> TradeBase:
@@ -153,7 +180,9 @@ class TradeUpdate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2_000)
     stop_loss: Money | None = None
     take_profit: Money | None = None
-    screenshot: str | None = Field(default=None, max_length=2_000)
+    screenshots: list[str] | None = Field(
+        default=None, max_length=MAX_SCREENSHOTS
+    )
     complied_entry: Compliance | None = None
     complied_exit: Compliance | None = None
     complied_management: Compliance | None = None
@@ -168,6 +197,11 @@ class TradeUpdate(BaseModel):
         # TradeUpdate does not inherit TradeBase, so the same rule is stated
         # twice rather than being quietly missing on the edit path.
         return None if sessions is None else list(dict.fromkeys(sessions))
+
+    @field_validator("screenshots")
+    @classmethod
+    def _safe_urls(cls, values: list[str] | None) -> list[str] | None:
+        return None if values is None else _checked_screenshots(values)
 
 
 class Trade(TradeBase):

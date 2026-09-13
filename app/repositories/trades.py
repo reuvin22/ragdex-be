@@ -81,6 +81,10 @@ _SEALED = frozenset(
         "rationale",
         "stopLoss",
         "takeProfit",
+        "screenshots",
+        # Legacy, like "session" above: one sealed string per trade, from
+        # before a trade could carry more than one chart. Listed so those
+        # documents still decrypt — see _screenshots_of().
         "screenshot",
         "compliedEntry",
         "compliedExit",
@@ -128,6 +132,25 @@ def _sessions_of(data: dict[str, Any]) -> list[TradingSession]:
     ]
 
 
+def _screenshots_of(data: dict[str, Any]) -> list[str]:
+    """The charts on a stored trade, whichever shape it was written in.
+
+    A trade used to hold one chart as a string. Rather than rewrite every
+    existing document, the old key is read and lifted into the list, so a
+    trade filed last year opens the same way as one filed today.
+
+    Anything that is not a non-empty string is dropped rather than passed
+    through: it would fail validation on the way into ``Trade``, and one
+    unreadable field in one document would take a whole page down with it.
+    """
+    stored = data.get("screenshots")
+    candidates: list[Any] = (
+        stored if isinstance(stored, list) else [data.get("screenshot")]
+    )
+
+    return [entry for entry in candidates if isinstance(entry, str) and entry]
+
+
 def _to_trade(snapshot: DocumentSnapshot) -> Trade:
     data = _readable(snapshot)
     return Trade(
@@ -145,7 +168,7 @@ def _to_trade(snapshot: DocumentSnapshot) -> Trade:
         rationale=data.get("rationale", ""),
         stop_loss=_to_decimal(data.get("stopLoss")),
         take_profit=_to_decimal(data.get("takeProfit")),
-        screenshot=data.get("screenshot", ""),
+        screenshots=_screenshots_of(data),
         complied_entry=data.get("compliedEntry", ""),
         complied_exit=data.get("compliedExit", ""),
         complied_management=data.get("compliedManagement", ""),
@@ -180,7 +203,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "rationale": "rationale",
         "stop_loss": "stopLoss",
         "take_profit": "takeProfit",
-        "screenshot": "screenshot",
+        "screenshots": "screenshots",
         "complied_entry": "compliedEntry",
         "complied_exit": "compliedExit",
         "complied_management": "compliedManagement",
