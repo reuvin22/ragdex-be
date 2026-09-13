@@ -7,6 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.profile import LeakCadence
+
 Role = Literal["user", "coach"]
 # Named so the service that narrows a model's answer to it can say so.
 Severity = Literal["low", "medium", "high"]
@@ -111,3 +113,6 @@ class LeakResponse(BaseModel):
     #: reaction to this morning.
     computed_at: datetime | None = None
     next_at: datetime | None = None
+    #: How often it is re-read, so the card can say which timeline the
+    #: behaviour it describes was read over.
+    cadence: LeakCadence | None = None

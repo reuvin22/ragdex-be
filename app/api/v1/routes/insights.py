@@ -66,6 +66,7 @@ async def behavioral_leak(
                 trade_count=len(trades),
                 computed_at=computed_at,
                 next_at=due,
+                cadence=profile.leak_cadence,
             )
 
     result = await detect_leak(summarise(trades), settings)
@@ -81,4 +82,5 @@ async def behavioral_leak(
         next_at=insights_repo.next_due(
             computed_at, profile.leak_cadence, profile.timezone
         ),
+        cadence=profile.leak_cadence,
     )
