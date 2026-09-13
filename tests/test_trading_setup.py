@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.repositories.trades import session_for
+from app.repositories.trades import _sessions_of, session_for
 from app.schemas.profile import Profile
 from app.schemas.trade import Trade
 from app.services.coach import trading_setup
@@ -118,7 +118,7 @@ def test_sessions_are_bucketed_for_the_coach() -> None:
             ticker="EURUSD",
             direction="Long",
             net_pl=Decimal("-200"),
-            session="newyork",
+            sessions=["newyork"],
         )
         for index in range(3)
     ] + [
@@ -127,7 +127,7 @@ def test_sessions_are_bucketed_for_the_coach() -> None:
             ticker="EURUSD",
             direction="Long",
             net_pl=Decimal("400"),
-            session="london",
+            sessions=["london"],
         )
     ]
 
@@ -142,3 +142,55 @@ def test_an_ungraded_session_is_left_out_of_the_buckets() -> None:
     trades = [Trade(id="t1", ticker="BTC", direction="Long", net_pl=Decimal("10"))]
 
     assert summarise(trades).by_session == []
+
+
+def test_a_trade_spanning_two_sessions_counts_in_both() -> None:
+    """A trade held across a handover belongs to both sides of it.
+
+    These buckets stop summing to the journal's total when that happens, and
+    that is the intended trade-off: the question they answer is "how do I
+    trade London", not "where did my money go".
+    """
+    trades = [
+        Trade(
+            id="t1",
+            ticker="EURUSD",
+            direction="Long",
+            net_pl=Decimal("-100"),
+            sessions=["asia", "london"],
+        )
+    ]
+
+    by_session = summarise(trades).by_session
+
+    assert sorted(bucket.label for bucket in by_session) == ["Asia", "London"]
+    assert all(bucket.trades == 1 for bucket in by_session)
+    assert all(bucket.net_pl == -100 for bucket in by_session)
+
+
+def test_a_repeated_session_is_counted_once() -> None:
+    trades = [
+        Trade(
+            id="t1",
+            ticker="EURUSD",
+            direction="Long",
+            net_pl=Decimal("-100"),
+            sessions=["london", "london"],
+        )
+    ]
+
+    by_session = summarise(trades).by_session
+
+    assert [bucket.label for bucket in by_session] == ["London"]
+    assert by_session[0].trades == 1
+
+
+def test_trades_written_before_overlaps_still_read() -> None:
+    """The old single-string key is lifted into the list rather than migrated."""
+    assert _sessions_of({"session": "london"}) == ["london"]
+    assert _sessions_of({"sessions": ["asia", "london"]}) == ["asia", "london"]
+    assert _sessions_of({}) == []
+    assert _sessions_of({"session": ""}) == []
+    # A trader who clears every session gets an empty list, and that must win
+    # over a stale legacy key rather than resurrecting the old answer.
+    assert _sessions_of({"sessions": [], "session": "london"}) == []

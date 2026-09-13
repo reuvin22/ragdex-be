@@ -17,10 +17,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Direction = Literal["Long", "Short"]
 Compliance = Literal["yes", "no", ""]
 
-#: Which session the trade was taken in. Empty means unknown — either the
+#: Which session a trade was taken in. An empty list means unknown — either the
 #: trader did not say and there was no entry time to work it out from, or the
 #: trade predates the field.
-TradingSession = Literal["asia", "london", "newyork", ""]
+TradingSession = Literal["asia", "london", "newyork"]
+
+#: Two, because the real sessions overlap in pairs — Asia runs into London,
+#: London into New York — and a trade held through one of those handovers
+#: genuinely belongs to both. It cannot belong to three: Asia and New York
+#: share no hour, so a third entry is a mistake rather than a longer trade.
+MAX_SESSIONS = 2
 
 # Money and sizes are bounded so a typo cannot write an absurd document, and
 # so downstream arithmetic cannot be handed an infinity.
@@ -55,7 +61,9 @@ class TradeBase(BaseModel):
     setup: str = _short_text()
     # Left empty by a trader who does not know, and filled in from the entry
     # time by the server. See session_for() in repositories/trades.
-    session: TradingSession = ""
+    sessions: list[TradingSession] = Field(
+        default_factory=list, max_length=MAX_SESSIONS
+    )
     rationale: str = _text()
     stop_loss: Money | None = None
     take_profit: Money | None = None
@@ -77,6 +85,13 @@ class TradeBase(BaseModel):
         cleaned = [tag.strip()[:60] for tag in tags if tag.strip()]
         # Order-preserving de-duplication: a repeated tag is noise, not data.
         return list(dict.fromkeys(cleaned))
+
+    @field_validator("sessions")
+    @classmethod
+    def _unique_sessions(cls, sessions: list[str]) -> list[str]:
+        # Order-preserving, like the tags above. Naming a session twice is a
+        # double tap on the button, not a trade that crossed it twice.
+        return list(dict.fromkeys(sessions))
 
     @field_validator("screenshot")
     @classmethod
@@ -113,7 +128,9 @@ class TradeUpdate(BaseModel):
     entry_at: datetime | None = None
     exit_at: datetime | None = None
     setup: str | None = Field(default=None, max_length=120)
-    session: TradingSession | None = None
+    sessions: list[TradingSession] | None = Field(
+        default=None, max_length=MAX_SESSIONS
+    )
     rationale: str | None = Field(default=None, max_length=2_000)
     stop_loss: Money | None = None
     take_profit: Money | None = None
@@ -125,6 +142,13 @@ class TradeUpdate(BaseModel):
     emotion_during: str | None = Field(default=None, max_length=120)
     mistakes: list[str] | None = Field(default=None, max_length=20)
     notes: str | None = Field(default=None, max_length=2_000)
+
+    @field_validator("sessions")
+    @classmethod
+    def _unique_sessions(cls, sessions: list[str] | None) -> list[str] | None:
+        # TradeUpdate does not inherit TradeBase, so the same rule is stated
+        # twice rather than being quietly missing on the edit path.
+        return None if sessions is None else list(dict.fromkeys(sessions))
 
 
 class Trade(TradeBase):

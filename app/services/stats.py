@@ -273,9 +273,9 @@ def summarise(trades: list[Trade]) -> Summary:
     # something a trader can act on, where "your 14:00 trades" is a coincidence
     # until you know which session that hour belongs to.
     summary.by_session = _worst_first(
-        _bucket(
-            [t for t in trades if t.session],
-            lambda t: SESSION_NAMES.get(t.session, t.session),
+        _bucket_many(
+            [t for t in trades if t.sessions],
+            lambda t: [SESSION_NAMES.get(s, s) for s in t.sessions],
         )
     )
 
@@ -327,16 +327,35 @@ def _after_loss(ordered: list[Trade]) -> AfterLoss:
 def _bucket(
     trades: list[Trade], key: Callable[[Trade], str]
 ) -> dict[str, Bucket]:
+    """One trade, one bucket — a setup or an hour is a single answer."""
+    return _bucket_many(trades, lambda trade: [key(trade)])
+
+
+def _bucket_many(
+    trades: list[Trade], keys: Callable[[Trade], list[str]]
+) -> dict[str, Bucket]:
+    """One trade, several buckets.
+
+    Sessions are the case that needs it. A trade held from Asia into London
+    belongs to both, and filing it under only one would flatter whichever it
+    was not filed under.
+
+    The price is that these buckets no longer sum to the journal's totals: a
+    two-session trade contributes its whole P&L to each of them. That is the
+    right answer to "how do I trade London", which is what this cut is for,
+    and the wrong answer to "where did my money go" — which by_setup, where
+    every trade is counted exactly once, already answers.
+    """
     buckets: dict[str, Bucket] = defaultdict(lambda: Bucket(label=""))
     for trade in trades:
-        label = key(trade)
-        bucket = buckets[label]
-        bucket.label = label
-        bucket.trades += 1
-        if trade.net_pl is not None:
-            bucket.net_pl = round(bucket.net_pl + float(trade.net_pl), 2)
-            if trade.net_pl >= 0:
-                bucket.wins += 1
+        for label in dict.fromkeys(keys(trade)):
+            bucket = buckets[label]
+            bucket.label = label
+            bucket.trades += 1
+            if trade.net_pl is not None:
+                bucket.net_pl = round(bucket.net_pl + float(trade.net_pl), 2)
+                if trade.net_pl >= 0:
+                    bucket.wins += 1
     return buckets
 
 

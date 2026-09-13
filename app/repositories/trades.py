@@ -12,7 +12,7 @@ import base64
 import binascii
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from google.cloud.firestore_v1 import (
     SERVER_TIMESTAMP,
@@ -24,9 +24,13 @@ from google.cloud.firestore_v1 import (
 from app.core.crypto import seal_fields, unseal_fields
 from app.core.errors import AppError, NotFoundError
 from app.db.firestore import journal_collection
-from app.schemas.trade import Trade, TradeCreate, TradeUpdate
+from app.schemas.trade import Trade, TradeCreate, TradeUpdate, TradingSession
 
 MAX_PAGE_SIZE = 200
+
+#: The session values a stored document is allowed to hold, taken from the
+#: schema rather than restated, so the two cannot drift apart.
+_KNOWN_SESSIONS: frozenset[str] = frozenset(get_args(TradingSession))
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -69,6 +73,10 @@ _SEALED = frozenset(
         "entryAt",
         "exitAt",
         "setup",
+        "sessions",
+        # Legacy. Trades written before a trade could span two sessions hold a
+        # single sealed string under this key; it is still listed so those
+        # documents decrypt. Nothing writes it any more — see _sessions_of().
         "session",
         "rationale",
         "stopLoss",
@@ -92,6 +100,34 @@ def _readable(snapshot: DocumentSnapshot) -> dict[str, Any]:
     return unseal_fields(snapshot.to_dict() or {}, _SEALED)
 
 
+def _sessions_of(data: dict[str, Any]) -> list[TradingSession]:
+    """The sessions a stored trade spans, whichever shape it was written in.
+
+    A trade used to hold one session as a string, because the bands were
+    treated as tiling the clock. They do not: Asia runs into London and London
+    into New York, and a trade held across a handover belongs to both. Rather
+    than rewrite every existing document, the old key is read and lifted into
+    the list — so a trade written last year and one written today answer the
+    same question the same way.
+
+    Unrecognised values are dropped rather than passed through. They would
+    otherwise fail validation on the way into ``Trade``, and one unreadable
+    field in one document would take a whole page of the journal down with it.
+    """
+    stored = data.get("sessions")
+    if isinstance(stored, list):
+        candidates: list[Any] = stored
+    else:
+        legacy = data.get("session")
+        candidates = [legacy]
+
+    return [
+        cast(TradingSession, entry)
+        for entry in candidates
+        if isinstance(entry, str) and entry in _KNOWN_SESSIONS
+    ]
+
+
 def _to_trade(snapshot: DocumentSnapshot) -> Trade:
     data = _readable(snapshot)
     return Trade(
@@ -105,7 +141,7 @@ def _to_trade(snapshot: DocumentSnapshot) -> Trade:
         entry_at=_to_datetime(data.get("entryAt")),
         exit_at=_to_datetime(data.get("exitAt")),
         setup=data.get("setup", ""),
-        session=data.get("session", ""),
+        sessions=_sessions_of(data),
         rationale=data.get("rationale", ""),
         stop_loss=_to_decimal(data.get("stopLoss")),
         take_profit=_to_decimal(data.get("takeProfit")),
@@ -140,7 +176,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "entry_at": "entryAt",
         "exit_at": "exitAt",
         "setup": "setup",
-        "session": "session",
+        "sessions": "sessions",
         "rationale": "rationale",
         "stop_loss": "stopLoss",
         "take_profit": "takeProfit",
@@ -221,12 +257,20 @@ def _derive(document: dict[str, Any]) -> dict[str, Any]:
         document["riskReward"] = round(reward / risk, 2) if risk else None
 
     # "No idea" plus an entry time is answerable, so answer it rather than
-    # storing a blank the statistics then have to skip. A session the trader
-    # chose themselves is never overwritten.
-    if not document.get("session"):
+    # storing a blank the statistics then have to skip. Sessions the trader
+    # chose themselves are never overwritten — _sessions_of reads the legacy
+    # single-string key too, so editing an old trade does not look like an
+    # empty answer and get one invented for it.
+    #
+    # Derivation still produces one session where a trader may pick two, and
+    # that asymmetry is deliberate: it reads a single instant, the entry, and
+    # an instant falls in exactly one band. That a trade was still open when
+    # the next session took over is not in the entry time — only the trader
+    # knows it.
+    if not _sessions_of(document):
         derived = session_for(document.get("entryAt"))
         if derived:
-            document["session"] = derived
+            document["sessions"] = [derived]
 
     return document
 
