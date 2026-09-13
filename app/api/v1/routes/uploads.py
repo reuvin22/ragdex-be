@@ -76,7 +76,7 @@ def read_slot(
     someone else's object has to name their uid, and this is where that is
     refused.
     """
-    if not r2.owns(user.uid, key):
+    if not r2.readable(user.uid, key):
         raise PermissionDeniedError("That image is not yours.")
 
     return ReadUrl(

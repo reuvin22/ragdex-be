@@ -99,6 +99,28 @@ def owns(uid: str, key: str) -> bool:
     return len(parts) >= 3 and parts[0] in FOLDERS and parts[1] == uid
 
 
+def readable(uid: str, key: str) -> bool:
+    """Whether this trader may be shown this image.
+
+    Wider than :func:`owns` in exactly one place: a profile photo is a
+    face people are meant to see. The directory already hands a contact
+    someone's name, email and photo, so signing a read for that key
+    discloses nothing the caller could not already ask for — and without
+    it a contact's avatar in chat is permanently a broken image.
+
+    Everything else stays the owner's: charts, coach images and the
+    pictures sent inside a conversation.
+    """
+    if ".." in key:
+        return False
+
+    parts = key.split("/")
+    if len(parts) < 3:
+        return False
+
+    return parts[0] == "profile" or owns(uid, key)
+
+
 def _presign(
     *,
     method: str,

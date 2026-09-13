@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
+import pytest
 from app.repositories import trades as repo
 from app.schemas.trade import Trade
 from google.api_core.exceptions import FailedPrecondition
+from pydantic import ValidationError
 
 
 def _stored(**overrides) -> Trade:
@@ -104,3 +106,24 @@ def test_a_missing_index_is_not_reported_as_a_server_bug(
     assert body["code"] == "database_not_ready"
     assert url not in response.text
     assert url in caplog.text
+
+
+def test_a_screenshot_may_be_an_uploaded_key_or_a_link_and_nothing_else() -> None:
+    """The field takes both shapes since the form offers both. It rejected the
+    key shape once, which meant a trade with an uploaded chart could not save
+    at all — and a ``javascript:`` URL still must not get through."""
+    from app.schemas.trade import TradeCreate
+
+    def screenshot_of(value: str) -> str:
+        return TradeCreate(
+            ticker="EURUSD", direction="Long", screenshot=value
+        ).screenshot
+
+    assert screenshot_of("charts/uid1/9f8e7d.png") == "charts/uid1/9f8e7d.png"
+    assert screenshot_of("https://tradingview.com/x/abc") == "https://tradingview.com/x/abc"
+    assert screenshot_of("") == ""
+
+    rejected = ("javascript:alert(1)", "data:image/png;base64,AAA", "charts/../a.png")
+    for value in rejected:
+        with pytest.raises(ValidationError):
+            screenshot_of(value)

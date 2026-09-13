@@ -263,3 +263,35 @@ def test_readiness_names_each_missing_r2_setting(app, monkeypatch) -> None:
     assert "R2_ACCESS_KEY_ID" in checks["images"]
     assert "R2_SECRET_ACCESS_KEY" in checks["images"]
     assert "R2_ACCOUNT_ID" not in checks["images"]
+
+
+def test_a_contacts_profile_photo_is_readable_but_nothing_else_of_theirs(
+    client, storage, verified_user
+) -> None:
+    """Chat shows a contact's face, so the key behind it has to sign for
+    someone who is not its owner. That widening stops at ``profile/``."""
+    stranger = "someone-else-entirely"
+
+    photo = client.get(
+        "/api/v1/uploads/url", params={"key": f"profile/{stranger}/a.jpg"}
+    )
+    chart = client.get(
+        "/api/v1/uploads/url", params={"key": f"charts/{stranger}/a.jpg"}
+    )
+    message = client.get(
+        "/api/v1/uploads/url", params={"key": f"messages/{stranger}/a.jpg"}
+    )
+
+    assert photo.status_code == 200
+    assert chart.status_code == 403
+    assert message.status_code == 403
+
+
+def test_traversal_is_refused_even_under_the_profile_folder(
+    client, storage, verified_user
+) -> None:
+    response = client.get(
+        "/api/v1/uploads/url", params={"key": "profile/../charts/x/a.jpg"}
+    )
+
+    assert response.status_code == 403

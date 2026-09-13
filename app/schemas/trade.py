@@ -8,11 +8,23 @@ endpoint grows an unintended surface.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+#: An image in the bucket, as ``<folder>/<uid>/<random>.<ext>``.
+#:
+#: Deliberately narrow rather than "anything without a colon". This is the
+#: one value in a trade the client renders as a source, so the shapes it may
+#: hold are spelled out rather than inferred from what is *not* dangerous.
+_STORAGE_KEY = re.compile(
+    r"(?:profile|charts|ai|messages)/"
+    r"[A-Za-z0-9_-]{1,128}/"
+    r"[A-Za-z0-9_-]{1,80}\.[a-z0-9]{1,8}"
+)
 
 Direction = Literal["Long", "Short"]
 Compliance = Literal["yes", "no", ""]
@@ -96,11 +108,18 @@ class TradeBase(BaseModel):
     @field_validator("screenshot")
     @classmethod
     def _safe_url(cls, value: str) -> str:
-        """Only http(s). A ``javascript:`` or ``data:`` URL stored here would
-        be rendered by the client as a link someone might click."""
-        if value and not value.startswith(("http://", "https://")):
-            raise ValueError("Must be an http or https URL.")
-        return value
+        """A link the trader pasted, or the key of an image they uploaded.
+
+        Both are allowed because the field takes either. Nothing else is: a
+        ``javascript:`` or ``data:`` URL stored here would be rendered by
+        the client as a link someone might click. A key carries no scheme,
+        so the two shapes cannot be confused for one another.
+        """
+        if not value or value.startswith(("http://", "https://")):
+            return value
+        if _STORAGE_KEY.fullmatch(value):
+            return value
+        raise ValueError("Must be an http(s) URL or an uploaded image.")
 
     @model_validator(mode="after")
     def _exit_after_entry(self) -> TradeBase:
