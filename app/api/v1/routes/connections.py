@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, status
 
-from app.api.deps import ReadUser, WriteUser
+from app.api.deps import AppSettings, ReadUser, WriteUser
 from app.core.errors import AppError, NotFoundError
 from app.repositories import connections as repo
 from app.schemas.common import ErrorResponse
@@ -30,7 +30,10 @@ from app.schemas.connection import (
     ConnectionCreate,
     ConnectionList,
     ConnectionUpdate,
+    SyncReport,
 )
+from app.services.bridges import bridge_for
+from app.services.broker_sync import sync_connection
 
 router = APIRouter(
     prefix="/connections",
@@ -98,3 +101,35 @@ def delete_connection(user: WriteUser, connection_id: str) -> None:
     """
     if not repo.delete_connection(user.uid, connection_id):
         raise NotFoundError("That connection does not exist.")
+
+
+@router.post(
+    "/{connection_id}/sync",
+    response_model=SyncReport,
+    summary="Import new trades from this account",
+    responses={
+        501: {"model": ErrorResponse, "description": "Broker sync not configured"},
+        502: {"model": ErrorResponse, "description": "The bridge could not answer"},
+    },
+)
+def sync_now(user: WriteUser, connection_id: str, settings: AppSettings) -> SyncReport:
+    """Pull whatever has closed since the last pass.
+
+    Exposed as a route as well as being run on a schedule, for three reasons
+    that all come down to the same thing — a trader should never be stuck
+    waiting on a timer they cannot see:
+
+    * the first sync after connecting, which is the one they are watching;
+    * "I closed a trade two minutes ago and it is not here yet";
+    * a connection that failed on a typo, retried after fixing it.
+
+    Idempotent. Running it twice imports nothing the second time, so a trader
+    leaning on the button costs a round trip and nothing else.
+    """
+    result = sync_connection(user.uid, connection_id, bridge_for(settings))
+
+    return SyncReport(
+        added=result.added,
+        seen=result.seen,
+        synced_through=result.through,
+    )

@@ -93,3 +93,18 @@ class Connection(BaseModel):
 
 class ConnectionList(BaseModel):
     items: list[Connection]
+
+
+class SyncReport(BaseModel):
+    """What one pass did.
+
+    ``seen`` alongside ``added`` because they answer different questions. Zero
+    added with a hundred seen means everything was already filed, which is the
+    feature working. Zero added with zero seen means nothing has closed since
+    last time — or the window is wrong. Reporting only "added" would make those
+    two look identical, and only one of them is worth investigating.
+    """
+
+    added: int
+    seen: int
+    synced_through: datetime | None = None

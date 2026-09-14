@@ -188,3 +188,130 @@ def test_a_window_that_has_moved_on_returns_nothing_rather_than_failing() -> Non
     ahead = datetime.now(UTC) + timedelta(days=1)
 
     assert bridge.closed_trades("a", ahead) == []
+
+
+# ------------------------------------------------- the self-hosted bridge
+
+
+def _rows() -> list[dict]:
+    """Positions exactly as mt5-bridge's MQL5 EA formats them.
+
+    Copied from the StringFormat call in CommandCore.mqh rather than invented,
+    including the parts that are easy to get wrong: unset stops come back as
+    0.00000 rather than null, the side is an EnumToString, and the times are
+    integers.
+    """
+    return [
+        {
+            "symbol": "EURUSD",
+            "open_time": 1757760000,
+            "ticket": 900001,
+            "type": "POSITION_TYPE_BUY",
+            "volume": 1.00,
+            "open_price": 1.10000,
+            "sl_price": 1.09000,
+            "tp_price": 1.12000,
+            "close_price": 1.10500,
+            "close_time": 1757763600,
+            "profit": 50.00,
+            "net_profit": 43.00,
+        },
+        {
+            "symbol": "XAUUSD",
+            "open_time": 1757770000,
+            "ticket": 900002,
+            "type": "POSITION_TYPE_SELL",
+            "volume": 0.50,
+            "open_price": 2400.0,
+            # Never had a stop or a target: MetaTrader says zero, not null.
+            "sl_price": 0.00000,
+            "tp_price": 0.00000,
+            "close_price": 2395.0,
+            "close_time": 1757773600,
+            "profit": 250.00,
+            "net_profit": 248.00,
+        },
+    ]
+
+
+def _adapter():
+    from app.core.config import Settings
+    from app.services.mt5bridge import Mt5BridgeAdapter
+
+    return Mt5BridgeAdapter(Settings(bridge_base_url="http://localhost:8891/v1"))
+
+
+def test_a_position_becomes_a_trade() -> None:
+    trades = _adapter()._to_trades(_rows(), None)
+
+    assert [trade.ticket for trade in trades] == ["900001", "900002"]
+    assert trades[0].symbol == "EURUSD"
+    assert trades[0].direction == "Long"
+    assert trades[0].entry_price == Decimal("1.1")
+    assert trades[0].exit_price == Decimal("1.105")
+
+
+def test_the_side_is_read_from_the_enum_name() -> None:
+    trades = _adapter()._to_trades(_rows(), None)
+    assert trades[1].direction == "Short"
+
+
+def test_a_zero_stop_means_no_stop_not_a_stop_at_zero() -> None:
+    """The difference matters downstream: risk, R and expectancy are all
+    measured from the stop, and a stop at zero would make one gold trade look
+    like a 2400-point risk."""
+    trades = _adapter()._to_trades(_rows(), None)
+
+    assert trades[0].stop_loss == Decimal("1.09")
+    assert trades[0].take_profit == Decimal("1.12")
+    assert trades[1].stop_loss is None
+    assert trades[1].take_profit is None
+
+
+def test_unreadable_rows_are_skipped_not_fatal() -> None:
+    rows = [*_rows(), {"ticket": 900003}, {"symbol": "X", "volume": 0}]
+    trades = _adapter()._to_trades(rows, None)
+
+    assert len(trades) == 2
+
+
+def test_the_day_already_imported_is_trimmed() -> None:
+    """The endpoint only accepts whole days, so the last synced day comes back
+    in full on every pass. Import is idempotent anyway, but the batch should
+    not claim to have seen work it already did."""
+    rows = _rows()
+    watermark = datetime.fromtimestamp(1757763600, tz=UTC)
+
+    trades = _adapter()._to_trades(rows, watermark)
+
+    assert [trade.ticket for trade in trades] == ["900002"]
+
+
+def test_times_come_back_as_aware_datetimes() -> None:
+    trades = _adapter()._to_trades(_rows(), None)
+
+    assert trades[0].opened_at.tzinfo is not None
+    assert trades[0].closed_at > trades[0].opened_at
+
+
+def test_the_bridge_refuses_a_terminal_serving_another_account(monkeypatch) -> None:
+    """The most important check in this adapter. One instance answers for
+    whatever terminal it is running, so without this a trader could type any
+    account number and be handed a stranger's trades."""
+    adapter = _adapter()
+    monkeypatch.setattr(adapter, "_get", lambda path, **kw: {"login": "99999999"})
+
+    with pytest.raises(BridgeError) as caught:
+        adapter.connect(Credentials("mt5", "FundedNext-Server2", "14228093", "pw"))
+
+    assert "99999999" in str(caught.value.message)
+
+    monkeypatch.setattr(adapter, "_get", lambda path, **kw: {"login": "14228093"})
+    assert adapter.connect(
+        Credentials("mt5", "FundedNext-Server2", "14228093", "pw")
+    ) == "14228093"
+
+
+def test_mt4_is_refused_by_this_bridge() -> None:
+    with pytest.raises(BridgeError):
+        _adapter().connect(Credentials("mt4", "S", "1", "pw"))

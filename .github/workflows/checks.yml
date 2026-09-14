@@ -1,0 +1,69 @@
+# Runs the checks that used to depend on someone remembering to.
+#
+# Render deploys this repository straight from `main`: push, it builds the
+# Dockerfile, it goes live. Nothing sat between those two steps, so whether
+# production had been linted, type-checked or tested came down to whether the
+# person pushing happened to have Docker running that day. It is how a broker
+# integration reached production unverified.
+#
+# This closes that gap. It is also the reason a local Docker daemon stops being
+# a requirement: the checks run here, on every push, on a machine that always
+# has one.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # So it can be run by hand against a branch before merging it.
+  workflow_dispatch:
+
+# A second push supersedes the first: there is no value in finishing a run
+# against code that has already been replaced.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The floor from pyproject, not the newest available. A dependency
+          # that quietly stops supporting the version this deploys on should
+          # fail here rather than in the Render build.
+          python-version: '3.11'
+          cache: pip
+
+      # The runtime dependencies come from pyproject; the dev tools are named
+      # here rather than taken from its [dev] extra, and that is deliberate.
+      # pyproject declares no [build-system], so `pip install '.[dev]'`
+      # resolves the extra without installing anything runnable — you get a
+      # clean exit and then "ruff: not found". The Dockerfile relies on that
+      # same behaviour to install runtime deps from the manifest alone, and it
+      # is currently deploying production, so it is not being changed on a
+      # machine that cannot build it. Naming the tools costs a line of drift
+      # and buys a build that works.
+      - name: Install
+        run: pip install . ruff mypy pytest pytest-asyncio httpx
+
+      # Ruff first: it is the fastest of the three, and a formatting failure
+      # tells you something in two seconds rather than ninety.
+      - name: Lint
+        run: ruff check .
+
+      - name: Types
+        run: mypy app
+
+      - name: Tests
+        run: pytest -q
+        env:
+          # No real credentials anywhere: the tests stub Firestore and every
+          # outbound service. A value here that looked real would be a value
+          # somebody eventually pointed at something real.
+          ENVIRONMENT: test
