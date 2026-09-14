@@ -426,35 +426,3 @@ def all_trades(uid: str, *, limit: int = 300) -> list[Trade]:
         .limit(min(limit, 1_000))
     )
     return [_to_trade(snapshot) for snapshot in query.stream()]
-
-
-def import_trade(uid: str, payload: TradeCreate, *, source_id: str) -> bool:
-    """File a trade that came from a broker, once.
-
-    ``source_id`` is the broker's own id for the round trip, and it becomes the
-    Firestore document id rather than a field. That is the whole deduplication
-    strategy, and it is worth saying why it is done this way: a sync re-reads
-    overlapping history constantly — every restart, every widened window — so
-    "have I seen this already" is the most-asked question in the feature. As an
-    id it is answered by the write itself. As a field it would be a query per
-    trade, on a collection that grows forever.
-
-    Returns True when the trade was new. An existing document is left exactly
-    as it is: the trader may have added notes, an emotion or a screenshot to a
-    synced trade, and a later sync must not wipe those to rewrite prices that
-    have not changed.
-    """
-    document = _derive(_to_document(payload, partial=False))
-    document["createdAt"] = SERVER_TIMESTAMP
-    document["updatedAt"] = SERVER_TIMESTAMP
-    document[_OWNER] = uid
-
-    # Namespaced, so a broker ticket can never collide with a Firestore id
-    # generated for a hand-typed trade.
-    reference = journal_collection().document(f"import_{source_id}")
-
-    if reference.get().exists:
-        return False
-
-    reference.set(seal_fields(document, _SEALED))
-    return True

@@ -77,16 +77,6 @@ async def ready(response: Response) -> ReadyResponse:
     ]
     checks["images"] = "ok" if not r2_missing else "missing " + ", ".join(r2_missing)
 
-    # Broker sync is the one feature that costs money per connected account,
-    # so it is the one most likely to be deliberately left off. Saying so
-    # here is what stops a trader's connection sitting on "Connecting…"
-    # while nobody can see why.
-    checks["broker_sync"] = (
-        "ok"
-        if settings.bridge_configured
-        else "off — set BRIDGE_PROVIDER and BRIDGE_TOKEN to enable"
-    )
-
     if not firestore_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 

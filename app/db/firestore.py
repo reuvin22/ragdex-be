@@ -117,14 +117,3 @@ def conversation_doc(uid: str) -> Any:
     read on page load beats a query every time.
     """
     return profile_doc(uid).collection("coach").document("conversation")
-
-
-def connections_collection(uid: str) -> Any:
-    """One trader's broker connections.
-
-    A subcollection of the profile, like insights: a connection is meaningless
-    without the account it belongs to, and nothing queries across accounts for
-    one. That also means the uid is in the path rather than in a field, so a
-    query cannot accidentally be written without it.
-    """
-    return profile_doc(uid).collection("connections")

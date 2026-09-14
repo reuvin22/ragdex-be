@@ -32,14 +32,6 @@ SERVICE_ACCOUNT_PATHS = (
 )
 
 
-#: Bridge providers that authenticate with a token.
-#:
-#: The self-hosted mt5-bridge has no authentication at all, so demanding a
-#: token would leave it permanently reported as unconfigured — and its lack of
-#: one is a deployment concern (keep it off the internet), not a settings one.
-_TOKEN_PROVIDERS = ("metaapi",)
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -162,38 +154,6 @@ class Settings(BaseSettings):
 
     #: The largest image accepted, before encryption or encoding overhead.
     max_upload_bytes: int = 10 * 1024 * 1024
-
-    # -- Broker sync -------------------------------------------------------
-    # Reading a MetaTrader account without asking the trader to install
-    # anything means a headless terminal has to run somewhere, logged in as
-    # them. Nobody does that for free, so this is the one part of the app
-    # with a per-user running cost — and the one most likely to be left
-    # unconfigured, which is why /ready names it.
-    bridge_provider: str = ""
-    bridge_token: SecretStr | None = None
-    #: Where the bridge lives. Overridable so a region or a self-hosted
-    #: deployment does not need a code change.
-    bridge_base_url: str = "https://mt-client-api-v1.new-york.agiliumtrade.ai"
-    bridge_provisioning_url: str = (
-        "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
-    )
-
-    @property
-    def bridge_configured(self) -> bool:
-        if not self.bridge_provider:
-            return False
-        if self.bridge_provider in _TOKEN_PROVIDERS:
-            return self.bridge_token is not None
-        return True
-
-    @property
-    def r2_configured(self) -> bool:
-        return bool(
-            self.r2_account_id
-            and self.r2_access_key_id
-            and self.r2_secret_access_key
-            and self.r2_bucket
-        )
 
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.
