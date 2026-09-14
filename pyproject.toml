@@ -16,6 +16,16 @@ dependencies = [
     "python-multipart>=0.0.12",
     # AES-GCM for application-level encryption; see app/core/crypto.py.
     "cryptography>=43.0",
+    # Reading the dozen date shapes a broker might export, in
+    # app/services/csv_analyse.py. The only part of that module the standard
+    # library cannot do: strptime needs to be told the format, and the whole
+    # point there is not knowing it.
+    #
+    # pandas would also do this, and was tried. It brings numpy and about
+    # ninety megabytes resident, on an instance with five hundred — for a
+    # median and some date parsing, after the client had already settled the
+    # delimiter. This is the same capability at a thousandth of the size.
+    "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]
