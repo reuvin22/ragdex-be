@@ -100,6 +100,11 @@ def billing_doc(uid: str) -> Any:
     return get_client().collection(_BILLINGS).document(uid)
 
 
+def billings_collection() -> Any:
+    """Every billing record. For maintenance scripts; routes address one uid."""
+    return get_client().collection(_BILLINGS)
+
+
 def insights_collection(uid: str) -> Any:
     """Model-written analysis. Read by the client, written only from here.
 

@@ -9,7 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 AccountType = Literal["student", "coach", "individual"]
-PlanId = Literal["individual", "coach"]
+#: "free" is the default tier: the journal and the figures computed from it.
+PlanId = Literal["free", "individual", "coach"]
 
 #: What they trade. Broad on purpose — the coach uses it for vocabulary and
 #: for what a normal hold time looks like, not for anything it calculates.
@@ -109,7 +110,7 @@ class Profile(BaseModel):
     # behavioural reading on purpose: two cards over the same window tell you
     # the same thing twice.
     edge_window: Period = "monthly"
-    plan: PlanId = "individual"
+    plan: PlanId = "free"
     plan_since: datetime | None = None
     created_at: datetime | None = None
     last_seen_at: datetime | None = None

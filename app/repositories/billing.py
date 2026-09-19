@@ -13,14 +13,16 @@ label the app gates features on.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, get_args
 
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 from app.db.firestore import billing_doc
 from app.schemas.profile import PlanId
 
-DEFAULT_PLAN: PlanId = "individual"
+#: What an account without a billing record is on — every new sign-up, and
+#: every account that has never chosen a plan.
+DEFAULT_PLAN: PlanId = "free"
 
 
 def _to_datetime(value: Any) -> datetime | None:
@@ -43,7 +45,9 @@ def get_billing(uid: str) -> tuple[PlanId, datetime | None]:
     data = snapshot.to_dict() or {}
     plan = data.get("plan")
     return (
-        plan if plan in ("individual", "coach") else DEFAULT_PLAN,
+        # Read off PlanId rather than a second hand-kept list, so adding a plan
+        # to the schema is the only change a new plan needs here.
+        plan if plan in get_args(PlanId) else DEFAULT_PLAN,
         _to_datetime(data.get("planSince")),
     )
 

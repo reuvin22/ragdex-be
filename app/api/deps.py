@@ -37,3 +37,7 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 # magnitude more than a journal read, so they cannot share one.
 StandardRateLimit = Depends(rate_limit("standard"))
 CoachRateLimit = Depends(rate_limit("coach", "coach_rate_limit_per_minute"))
+# Candles are cheap to serve from the cache and dear to fetch, and every miss
+# spends provider quota — so this sits below the standard budget rather than
+# sharing it.
+MarketRateLimit = Depends(rate_limit("market", "market_rate_limit_per_minute"))

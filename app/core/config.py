@@ -137,6 +137,24 @@ class Settings(BaseSettings):
     # about the words and silently ignores the picture.
     openrouter_vision_model: str = ""
 
+    # -- Market data -------------------------------------------------------
+    # Historical candles behind the chart on a trade record. Public data, but
+    # it takes a key to fetch — and a key in the browser is a key anyone can
+    # read and spend, which is why this request comes through the API like
+    # every other one.
+    #
+    # Massive (the company that was Polygon.io until it rebranded) by default:
+    # intraday history years back is what a trade chart needs, and most free
+    # tiers serve either recent intraday or long-range daily. Unset simply
+    # means the feature is off — the route answers 503 and the client falls
+    # back to drawing the position on its own.
+    market_api_key: SecretStr | None = None
+    market_timeout_seconds: float = 12.0
+    #: Its own budget, below the standard one. Each call costs money or quota
+    #: upstream, and a trader clicking through twenty records in a minute
+    #: should not be able to spend twenty provider calls doing it.
+    market_rate_limit_per_minute: int = 20
+
     # -- Cloudflare R2 -----------------------------------------------------
     # Object storage for images. The browser never sees these: the API signs a
     # short-lived URL and the upload goes straight from the browser to R2, so a

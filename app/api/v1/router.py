@@ -14,6 +14,7 @@ from app.api.v1.routes import (
     coach,
     imports,
     insights,
+    market,
     profile,
     trades,
     uploads,
@@ -26,6 +27,7 @@ api_router.include_router(profile.router)
 api_router.include_router(trades.router)
 api_router.include_router(coach.router)
 api_router.include_router(insights.router)
+api_router.include_router(market.router)
 api_router.include_router(chat.router)
 api_router.include_router(uploads.router)
 api_router.include_router(imports.router)

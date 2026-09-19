@@ -124,6 +124,7 @@ every name it is commonly saved under.
 | `GET/PATCH/DELETE` | `/api/v1/trades/{id}` | Scoped to you. |
 | `POST` | `/api/v1/coach/chat` | Journal read server-side, never from the body. |
 | `GET` | `/api/v1/insights/behavioral-leak` | `needed` when history is too short. |
+| `GET` | `/api/v1/market/candles` | Public market data, not yours. 503 when unconfigured. |
 | `GET` | `/api/v1/chat/directory` | Find a trader by email. Three-character floor. |
 | `GET/POST` | `/api/v1/chat/contacts` | Your conversations; opening a new one. |
 | `GET` | `/api/v1/chat/threads/{uid}` | One conversation, addressed by person. |
@@ -132,6 +133,14 @@ every name it is commonly saved under.
 
 Paging is cursor-based, not offset: a journal is append-heavy, and an offset
 silently skips or repeats rows when something is inserted mid-read.
+
+`/market/candles` is the one route whose answer does not depend on who asked.
+Candles are public market facts, identical for every trader, so the cache
+behind them is global and the handler never consults a uid. It still requires
+a session — that is what keeps the endpoint, and the provider quota behind it,
+off the open internet — and it carries a smaller rate limit than a journal
+read, because every cache miss spends money upstream. It takes no uid, like
+everything else here; it simply has no use for one.
 
 No chat route takes a thread id. A conversation is addressed by the person at
 the other end, and the thread is derived from that uid plus the caller's, which

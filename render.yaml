@@ -63,6 +63,14 @@ services:
       # two routes are the only thing that stops working.
       - key: OPENROUTER_API_KEY
         sync: false
+
+      # Candles behind the chart on a trade record. Optional: unset simply
+      # means /api/v1/market/candles answers 503 and the client draws the
+      # position from the trade record alone. Massive (formerly Polygon.io)
+      # by default — see app/services/market.py for why, and for what
+      # swapping provider costs.
+      - key: MARKET_API_KEY
+        sync: false
       # A chain, not one slug. configured_models() splits this on commas and
       # hands the whole list to OpenRouter, which falls through when a model is
       # rate limited or unavailable. A single slug throws that away and leaves
