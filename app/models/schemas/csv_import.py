@@ -64,7 +64,7 @@ class CsvAnalysis(BaseModel):
 
     #: Field name to column index. Fields nothing matched are simply absent.
     mapping: dict[str, int]
-    #: Field name to 0–1. Same keys as the mapping.
+    #: Field name to a score from 0 to 1. Same keys as the mapping.
     confidence: dict[str, float]
     #: The header row as read, so the client can offer them for correction.
     headers: list[str]

@@ -35,10 +35,11 @@ five hundred, to take a median.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from difflib import SequenceMatcher
 from statistics import median_low
-from typing import Any, Callable
+from typing import Any
 
 from dateutil import parser as dateparser
 
@@ -96,7 +97,15 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
         "date",
         "opened",
     ),
-    "exitAt": ("exittime", "closetime", "timeclose", "closedat", "exitdate", "closedate", "closed"),
+    "exitAt": (
+        "exittime",
+        "closetime",
+        "timeclose",
+        "closedat",
+        "exitdate",
+        "closedate",
+        "closed",
+    ),
     "stopLoss": ("stoploss", "sl", "stop", "slprice"),
     "takeProfit": ("takeprofit", "tp", "target", "tpprice"),
     "setup": ("setup", "strategy", "playbook", "system", "model"),
@@ -106,7 +115,16 @@ SYNONYMS: dict[str, tuple[str, ...]] = {
 
 #: What a direction column says, in the exports seen so far.
 LONG_WORDS = {"buy", "long", "b", "bot", "bought", "dealtypebuy", "positiontypebuy", "0"}
-SHORT_WORDS = {"sell", "short", "s", "sld", "sold", "dealtypesell", "positiontypesell", "1"}
+SHORT_WORDS = {
+    "sell",
+    "short",
+    "s",
+    "sld",
+    "sold",
+    "dealtypesell",
+    "positiontypesell",
+    "1",
+}
 
 #: Below this, a near-miss on a header is a coincidence rather than a typo.
 FUZZY_FLOOR = 0.82
@@ -236,7 +254,8 @@ def content_score(field: str, values: list[str]) -> float:
         # size or a count, not a price.
         fractional = _fraction(
             values,
-            lambda value: (_as_float(value) or 0) > 0 and (_as_float(value) or 0) % 1 != 0,
+            lambda value: (_as_float(value) or 0) > 0
+            and (_as_float(value) or 0) % 1 != 0,
         )
         return numeric * (0.5 + 0.5 * fractional)
 
@@ -258,7 +277,9 @@ def content_score(field: str, values: list[str]) -> float:
         return (
             _fraction(
                 values,
-                lambda value: not _numeric(value) and not _datey(value) and len(value) > 2,
+                lambda value: not _numeric(value)
+                and not _datey(value)
+                and len(value) > 2,
             )
             * 0.35
         )
@@ -399,7 +420,13 @@ def _pair_by_time(
             mapping["entryAt"], mapping["exitAt"] = second, first
         return
 
-    present = "entryAt" if "entryAt" in mapping else "exitAt" if "exitAt" in mapping else None
+    present = (
+        "entryAt"
+        if "entryAt" in mapping
+        else "exitAt"
+        if "exitAt" in mapping
+        else None
+    )
     if present is None:
         return
 

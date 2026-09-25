@@ -25,9 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from google.cloud.firestore_v1 import SERVER_TIMESTAMP  # noqa: E402
-
-from app.db.firestore import billings_collection, get_client, init_firebase  # noqa: E402
+from app.db.firestore import billings_collection, get_client, init_firebase
+from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 TARGET = "free"
 
@@ -48,7 +47,9 @@ def main() -> int:
 
     records = list(billings_collection().stream())
     before = Counter((record.to_dict() or {}).get("plan", "(none)") for record in records)
-    pending = [record for record in records if (record.to_dict() or {}).get("plan") != TARGET]
+    pending = [
+        record for record in records if (record.to_dict() or {}).get("plan") != TARGET
+    ]
 
     print(f"billing records  {len(records)}")
     for plan, count in sorted(before.items()):

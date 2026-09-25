@@ -41,6 +41,10 @@ dev = [
 line-length = 90
 target-version = "py311"
 src = ["app", "tests"]
+# Vendored agent skill packs — someone else's code, checked in whole. Linting
+# them buried the project's own findings 15 deep, which is how `ruff check .`
+# came to be a command nobody could read the output of.
+extend-exclude = [".agents", ".claude"]
 
 [tool.ruff.lint]
 select = [

@@ -47,12 +47,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from firebase_admin import auth as firebase_auth  # noqa: E402
-from google.cloud.firestore_v1 import SERVER_TIMESTAMP  # noqa: E402
-
-from app.core.security import CurrentUser  # noqa: E402
-from app.db.firestore import billing_doc, init_firebase, profile_doc  # noqa: E402
-from app.models.repositories import directory  # noqa: E402
+from app.core.security import CurrentUser
+from app.db.firestore import billing_doc, init_firebase, profile_doc
+from app.models.repositories import directory
+from firebase_admin import auth as firebase_auth
+from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 DEFAULT_EMAIL = "demo@ragdex.app"
 DEFAULT_NAME = "Demo Trader"
