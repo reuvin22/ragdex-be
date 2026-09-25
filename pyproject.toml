@@ -44,7 +44,14 @@ src = ["app", "tests"]
 # Vendored agent skill packs — someone else's code, checked in whole. Linting
 # them buried the project's own findings 15 deep, which is how `ruff check .`
 # came to be a command nobody could read the output of.
-extend-exclude = [".agents", ".claude"]
+#
+# `build` and `dist` are setuptools' own copies of this package. CI runs
+# `pip install .` before `ruff check .`, which leaves the whole of `app/`
+# duplicated under `build/lib/`, and that copy is linted as if it were source.
+# Worse than the noise: a per-file-ignore below is written as `app/…`, which
+# the copy's path does not match — so the copy fails on rules the original is
+# deliberately exempt from, and the report names a file nobody edits.
+extend-exclude = [".agents", ".claude", "build", "dist"]
 
 [tool.ruff.lint]
 select = [

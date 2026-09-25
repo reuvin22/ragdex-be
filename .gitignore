@@ -9,6 +9,12 @@ venv/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+# setuptools' working copies of this package, left behind by `pip install .`.
+# Ignored so they cannot be committed, and so tools that skip ignored paths
+# skip them too — ruff is also told explicitly in pyproject, because CI runs
+# it on a checkout where these are the only untracked files that matter.
+build/
+dist/
 
 # Service account keys must never be committed, under any name.
 #
