@@ -250,14 +250,24 @@ def content_score(field: str, values: list[str]) -> float:
 
     if field in ("entryPrice", "exitPrice", "stopLoss", "takeProfit"):
         numeric = _fraction(values, _numeric)
-        # Prices are positive and rarely whole; a column of small integers is a
-        # size or a count, not a price.
+
+        # A price is never negative, so a negative column is not a weak price —
+        # it is not a price. Disqualifying rather than merely unrewarded: this
+        # used to live inside `fractional` below, where the 0.5 floor still
+        # carried an all-negative column to exactly ACCEPT. That is how a
+        # broker's Commission and Swap columns — reliably negative, and named
+        # nothing like a price — were imported as entry and exit prices.
+        #
+        # Nothing mapped here is ever negative. P&L is the one figure that
+        # would be, and it is not in FIELDS at all: the server derives it.
+        positive = _fraction(values, lambda value: (_as_float(value) or 0) > 0)
+
+        # Prices are rarely whole; a column of small integers is a size or a
+        # count, not a price.
         fractional = _fraction(
-            values,
-            lambda value: (_as_float(value) or 0) > 0
-            and (_as_float(value) or 0) % 1 != 0,
+            values, lambda value: (_as_float(value) or 0) % 1 != 0
         )
-        return numeric * (0.5 + 0.5 * fractional)
+        return numeric * positive * (0.5 + 0.5 * fractional)
 
     if field == "size":
         numeric = _fraction(values, _numeric)

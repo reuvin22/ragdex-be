@@ -25,10 +25,19 @@ def test_unauthenticated_request_is_rejected(app) -> None:
     assert response.json()["error"]["code"] == "unauthorized"
 
 
-def test_write_requires_a_confirmed_email(app, unverified_user) -> None:
+def test_write_requires_a_confirmed_email(app, unverified_user, monkeypatch) -> None:
     """An unverified session may read its own journal but may not write."""
+    from app.models.repositories import profiles
+
+    # get_verified_user is left real, so it applies its own check — but that
+    # check reads the profile document, and a test that reaches Firestore is a
+    # test that depends on who is running it. Unpatched, this passed on any
+    # machine holding a service account key (by querying the live project) and
+    # failed everywhere else, CI included. Stubbing the lookup leaves the
+    # dependency under test and takes the database out of it.
+    monkeypatch.setattr(profiles, "is_confirmed", lambda uid: False)
+
     app.dependency_overrides[get_current_user] = lambda: unverified_user
-    # get_verified_user is left real, so it applies its own check.
 
     with TestClient(app) as client:
         response = client.post(
