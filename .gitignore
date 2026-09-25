@@ -26,3 +26,4 @@ trading-journal.json
 *.pem
 
 coach.md.env
+.env.example
