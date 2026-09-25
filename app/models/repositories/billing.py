@@ -13,7 +13,7 @@ label the app gates features on.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
@@ -47,7 +47,12 @@ def get_billing(uid: str) -> tuple[PlanId, datetime | None]:
     return (
         # Read off PlanId rather than a second hand-kept list, so adding a plan
         # to the schema is the only change a new plan needs here.
-        plan if plan in get_args(PlanId) else DEFAULT_PLAN,
+        #
+        # The cast states what the membership test just established. It is a
+        # document field, so it arrives as Any, and `in get_args(PlanId)` is a
+        # runtime check mypy cannot narrow through — the guard is the real
+        # thing, and this only says so in the type.
+        cast(PlanId, plan) if plan in get_args(PlanId) else DEFAULT_PLAN,
         _to_datetime(data.get("planSince")),
     )
 

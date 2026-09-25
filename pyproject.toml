@@ -35,6 +35,10 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "types-requests",
+    # dateutil ships no types. Without these, mypy reads dateparser.parse() as
+    # Any, which fails strict mode twice over: once on the bare import, and
+    # again where the Any is returned from a function annotated datetime|None.
+    "types-python-dateutil",
 ]
 
 [tool.ruff]

@@ -50,7 +50,7 @@ jobs:
       # machine that cannot build it. Naming the tools costs a line of drift
       # and buys a build that works.
       - name: Install
-        run: pip install . ruff mypy pytest pytest-asyncio httpx
+        run: pip install . ruff mypy pytest pytest-asyncio httpx types-python-dateutil
 
       # Ruff first: it is the fastest of the three, and a formatting failure
       # tells you something in two seconds rather than ninety.

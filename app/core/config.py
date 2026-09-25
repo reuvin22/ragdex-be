@@ -199,6 +199,24 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment == "production"
 
+    @property
+    def r2_configured(self) -> bool:
+        """Whether a signed URL can actually be produced.
+
+        All four values, because signing needs every one of them: the account
+        id builds the host, the bucket names the object, and the key pair makes
+        the signature. A half-filled configuration would otherwise pass the
+        check in ``r2._presign`` and fail at the signature instead — which
+        reaches the trader as a broken upload rather than as a feature that was
+        never switched on.
+        """
+        return bool(
+            self.r2_account_id
+            and self.r2_access_key_id
+            and self.r2_secret_access_key
+            and self.r2_bucket
+        )
+
     def _service_account_source(self) -> tuple[str, str] | None:
         """Where the credential is coming from, as (description, raw JSON).
 
