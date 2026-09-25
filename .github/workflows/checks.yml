@@ -66,4 +66,12 @@ jobs:
           # No real credentials anywhere: the tests stub Firestore and every
           # outbound service. A value here that looked real would be a value
           # somebody eventually pointed at something real.
-          ENVIRONMENT: test
+          #
+          # "development", not "test": Settings.environment is a Literal of
+          # development / staging / production, and there is no fourth. This
+          # said "test" and took out 39 tests before any of them ran — app.main
+          # builds the app at import, so an environment pydantic rejects fails
+          # in the fixture that imports it, not in a test that reads it.
+          # tests/conftest.py builds its settings with "development" too, so
+          # this now matches rather than contradicting it.
+          ENVIRONMENT: development
