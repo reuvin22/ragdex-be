@@ -52,7 +52,7 @@ from google.cloud.firestore_v1 import SERVER_TIMESTAMP  # noqa: E402
 
 from app.core.security import CurrentUser  # noqa: E402
 from app.db.firestore import billing_doc, init_firebase, profile_doc  # noqa: E402
-from app.repositories import directory  # noqa: E402
+from app.models.repositories import directory  # noqa: E402
 
 DEFAULT_EMAIL = "demo@ragdex.app"
 DEFAULT_NAME = "Demo Trader"

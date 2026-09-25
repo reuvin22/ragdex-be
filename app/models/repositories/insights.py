@@ -19,8 +19,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.core.crypto import seal_fields, unseal_fields
 from app.db.firestore import insights_collection
-from app.schemas.coach import LeakResult
-from app.schemas.profile import LeakCadence
+from app.models.schemas.coach import LeakResult
+from app.models.schemas.profile import LeakCadence
 
 logger = logging.getLogger(__name__)
 

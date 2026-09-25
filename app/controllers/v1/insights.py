@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import AppSettings, CoachRateLimit, ReadUser
-from app.repositories import insights as insights_repo
-from app.repositories import profiles as profiles_repo
-from app.repositories import trades as trades_repo
-from app.schemas.coach import LeakResponse
-from app.schemas.common import ErrorResponse
+from app.controllers.deps import AppSettings, CoachRateLimit, ReadUser
+from app.models.repositories import insights as insights_repo
+from app.models.repositories import profiles as profiles_repo
+from app.models.repositories import trades as trades_repo
+from app.models.schemas.coach import LeakResponse
+from app.models.schemas.common import ErrorResponse
 from app.services.insights import detect_leak
 from app.services.stats import MIN_TRADES_FOR_ANALYSIS, summarise
 

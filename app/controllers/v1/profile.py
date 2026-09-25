@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.deps import ReadUser, StandardRateLimit, WriteUser
-from app.repositories import profiles as repo
-from app.schemas.common import ErrorResponse
-from app.schemas.profile import PlanChange, Profile, ProfileUpdate
+from app.controllers.deps import ReadUser, StandardRateLimit, WriteUser
+from app.models.repositories import profiles as repo
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.profile import PlanChange, Profile, ProfileUpdate
 
 router = APIRouter(
     prefix="/me",

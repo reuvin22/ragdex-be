@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Path, Query, Response, status
 
-from app.api.deps import ReadUser, StandardRateLimit, WriteUser
-from app.repositories import trades as repo
-from app.schemas.common import ErrorResponse
-from app.schemas.trade import Trade, TradeCreate, TradePage, TradeUpdate
+from app.controllers.deps import ReadUser, StandardRateLimit, WriteUser
+from app.models.repositories import trades as repo
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.trade import Trade, TradeCreate, TradePage, TradeUpdate
 
 router = APIRouter(
     prefix="/trades",

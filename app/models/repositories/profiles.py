@@ -16,7 +16,7 @@ from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 from app.core.errors import NotFoundError
 from app.core.security import CurrentUser
 from app.db.firestore import profile_doc
-from app.schemas.profile import PlanId, Profile, ProfileUpdate
+from app.models.schemas.profile import PlanId, Profile, ProfileUpdate
 
 from . import billing, directory
 

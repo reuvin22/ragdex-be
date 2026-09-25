@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from app.core.config import Settings
-from app.schemas.coach import LeakResult, Severity
+from app.models.schemas.coach import LeakResult, Severity
 from app.services import openrouter
 from app.services.coach import headline_facts
 from app.services.stats import MIN_TRADES_FOR_ANALYSIS, Summary

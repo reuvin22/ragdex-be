@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.profile import LeakCadence
+from app.models.schemas.profile import LeakCadence
 
 Role = Literal["user", "coach"]
 # Named so the service that narrows a model's answer to it can say so.

@@ -25,7 +25,7 @@ from typing import Any
 
 from app.core.crypto import seal, unseal
 from app.db.firestore import conversation_doc
-from app.schemas.coach import MAX_REPLY, CoachTurn
+from app.models.schemas.coach import MAX_REPLY, CoachTurn
 
 _TURNS = "turns"
 

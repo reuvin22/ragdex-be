@@ -18,7 +18,7 @@ from decimal import Decimal
 from itertools import pairwise
 from statistics import median
 
-from app.schemas.trade import Trade
+from app.models.schemas.trade import Trade
 
 # Below this, any "pattern" is noise.
 MIN_TRADES_FOR_ANALYSIS = 8

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.schemas.trade import Trade
+from app.models.schemas.trade import Trade
 from app.services.coach import (
     BEHAVIOUR_EVIDENCE,
     build_system_prompt,

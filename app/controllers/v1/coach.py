@@ -10,17 +10,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.deps import AppSettings, CoachRateLimit, ReadUser, WriteUser
-from app.repositories import conversations as conversations_repo
-from app.repositories import profiles as profiles_repo
-from app.repositories import trades as trades_repo
-from app.schemas.coach import (
+from app.controllers.deps import AppSettings, CoachRateLimit, ReadUser, WriteUser
+from app.models.repositories import conversations as conversations_repo
+from app.models.repositories import profiles as profiles_repo
+from app.models.repositories import trades as trades_repo
+from app.models.schemas.coach import (
     HISTORY_LIMIT,
     CoachConversation,
     CoachReply,
     CoachRequest,
 )
-from app.schemas.common import ErrorResponse
+from app.models.schemas.common import ErrorResponse
 from app.services import coach as coach_service
 from app.services.stats import summarise
 

@@ -98,7 +98,7 @@ async def get_verified_user(
     Imported here rather than at module scope: repositories import this module
     for ``CurrentUser``, and at the top that circle does not resolve.
     """
-    from app.repositories import profiles
+    from app.models.repositories import profiles
 
     if not profiles.is_confirmed(user.uid):
         raise AppError(

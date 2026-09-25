@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.deps import WriteUser
+from app.controllers.deps import WriteUser
 from app.core.errors import AppError
-from app.schemas.common import ErrorResponse
-from app.schemas.csv_import import CsvAnalysis, CsvSample
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.csv_import import CsvAnalysis, CsvSample
 from app.services import csv_analyse
 
 router = APIRouter(

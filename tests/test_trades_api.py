@@ -10,8 +10,8 @@ import logging
 from decimal import Decimal
 
 import pytest
-from app.repositories import trades as repo
-from app.schemas.trade import Trade
+from app.models.repositories import trades as repo
+from app.models.schemas.trade import Trade
 from google.api_core.exceptions import FailedPrecondition
 from pydantic import ValidationError
 
@@ -112,7 +112,7 @@ def test_screenshots_may_be_uploaded_keys_or_links_and_nothing_else() -> None:
     """The field takes both shapes since the form offers both. It rejected the
     key shape once, which meant a trade with an uploaded chart could not save
     at all — and a ``javascript:`` URL still must not get through."""
-    from app.schemas.trade import TradeCreate
+    from app.models.schemas.trade import TradeCreate
 
     def kept(*values: str) -> list[str]:
         return TradeCreate(
@@ -137,7 +137,7 @@ def test_screenshots_may_be_uploaded_keys_or_links_and_nothing_else() -> None:
 def test_a_trade_filed_before_charts_were_plural_still_opens() -> None:
     """One sealed string under the old key, lifted into the list — the same
     treatment the session field got when it became plural."""
-    from app.repositories.trades import _screenshots_of
+    from app.models.repositories.trades import _screenshots_of
 
     assert _screenshots_of({"screenshot": "charts/uid1/a.png"}) == ["charts/uid1/a.png"]
     assert _screenshots_of({"screenshot": ""}) == []

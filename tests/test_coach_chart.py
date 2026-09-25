@@ -10,9 +10,9 @@ server would go and fetch.
 from __future__ import annotations
 
 import pytest
-from app.api.v1.routes import coach as route
+from app.controllers.v1 import coach as route
 from app.core.config import Settings
-from app.schemas.coach import MAX_IMAGE, CoachRequest
+from app.models.schemas.coach import MAX_IMAGE, CoachRequest
 from app.services import openrouter
 from app.services.coach import ask
 from pydantic import ValidationError

@@ -8,9 +8,9 @@ server keeps the conversation, and the client can no longer supply one.
 from __future__ import annotations
 
 import pytest
-from app.api.v1.routes import coach as route
-from app.repositories import conversations as repo
-from app.schemas.coach import HISTORY_LIMIT, CoachTurn
+from app.controllers.v1 import coach as route
+from app.models.repositories import conversations as repo
+from app.models.schemas.coach import HISTORY_LIMIT, CoachTurn
 
 
 class _Completion:

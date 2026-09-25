@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import AppSettings, ReadUser, WriteUser
+from app.controllers.deps import AppSettings, ReadUser, WriteUser
 from app.core.errors import AppError, PermissionDeniedError
-from app.schemas.common import ErrorResponse
-from app.schemas.upload import ReadUrl, UploadRequest, UploadSlot
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.upload import ReadUrl, UploadRequest, UploadSlot
 from app.services import r2
 
 router = APIRouter(

@@ -92,10 +92,10 @@ def test_confirming_needs_no_session(app, monkeypatch) -> None:
     marked: list[str] = []
 
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.profile_repo.mark_confirmed", marked.append
+        "app.controllers.v1.auth.profile_repo.mark_confirmed", marked.append
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.firebase_auth.update_user",
+        "app.controllers.v1.auth.firebase_auth.update_user",
         lambda uid, **kwargs: None,
     )
 

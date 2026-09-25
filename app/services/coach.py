@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings
-from app.schemas.coach import CoachTurn
-from app.schemas.profile import Profile
+from app.models.schemas.coach import CoachTurn
+from app.models.schemas.profile import Profile
 from app.services import openrouter
 from app.services.stats import Bucket, RuleAdherence, Summary
 

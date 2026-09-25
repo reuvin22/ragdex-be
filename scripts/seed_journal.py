@@ -38,8 +38,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db.firestore import init_firebase
-from app.repositories import trades as repo
-from app.schemas.trade import TradeCreate
+from app.models.repositories import trades as repo
+from app.models.schemas.trade import TradeCreate
 from firebase_admin import auth as firebase_auth
 
 TICKERS = ("NVDA", "TSLA", "AAPL", "SPY", "AMD", "MSFT", "META", "COIN")

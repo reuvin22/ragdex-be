@@ -17,13 +17,13 @@ from fastapi import APIRouter, Query, Response, status
 from fastapi.responses import RedirectResponse
 from firebase_admin import auth as firebase_auth
 
-from app.api.deps import AppSettings, MaybeUser, ReadUser
+from app.controllers.deps import AppSettings, MaybeUser, ReadUser
 from app.core import confirmation
 from app.core import session as session_store
 from app.core.errors import AppError
 from app.core.security import AuthError, CurrentUser, anonymous_rate_limit
-from app.repositories import profiles as profile_repo
-from app.schemas.auth import (
+from app.models.repositories import profiles as profile_repo
+from app.models.schemas.auth import (
     Credentials,
     GoogleSignIn,
     PasswordResetRequest,
@@ -32,7 +32,7 @@ from app.schemas.auth import (
     SessionUser,
     VerificationSent,
 )
-from app.schemas.common import ErrorResponse, Message
+from app.models.schemas.common import ErrorResponse, Message
 from app.services import email as email_service
 from app.services import identity
 

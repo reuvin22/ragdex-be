@@ -18,7 +18,7 @@ from typing import Any, get_args
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 from app.db.firestore import billing_doc
-from app.schemas.profile import PlanId
+from app.models.schemas.profile import PlanId
 
 #: What an account without a billing record is on — every new sign-up, and
 #: every account that has never chosen a plan.

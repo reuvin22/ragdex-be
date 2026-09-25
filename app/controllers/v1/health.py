@@ -10,10 +10,10 @@ import logging
 
 from fastapi import APIRouter, Response, status
 
-from app.api.deps import AppSettings
+from app.controllers.deps import AppSettings
 from app.core.config import get_settings
 from app.db.firestore import get_client
-from app.schemas.common import HealthResponse, ReadyResponse
+from app.models.schemas.common import HealthResponse, ReadyResponse
 from app.services import email as email_service
 
 logger = logging.getLogger(__name__)

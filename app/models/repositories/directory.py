@@ -18,7 +18,7 @@ from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
 from app.core.security import CurrentUser
 from app.db.firestore import get_client
-from app.schemas.directory import DirectoryEntry
+from app.models.schemas.directory import DirectoryEntry
 
 _DIRECTORY = "directory"
 

@@ -15,13 +15,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from firebase_admin import auth as firebase_auth
 
-from app.api.deps import ReadUser, StandardRateLimit
+from app.controllers.deps import ReadUser, StandardRateLimit
 from app.core.errors import AppError
 from app.core.threadkey import derive_thread_key
-from app.repositories import directory as directory_repo
-from app.schemas.chat import ChatToken, ThreadKey
-from app.schemas.common import ErrorResponse
-from app.schemas.directory import DirectoryResults
+from app.models.repositories import directory as directory_repo
+from app.models.schemas.chat import ChatToken, ThreadKey
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.directory import DirectoryResults
 
 router = APIRouter(
     prefix="/chat",

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from app.schemas.trade import Trade
+from app.models.schemas.trade import Trade
 from app.services.stats import summarise
 
 BASE = datetime(2026, 3, 2, 9, 30, tzinfo=UTC)

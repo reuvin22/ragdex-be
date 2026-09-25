@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.api.deps import AppSettings, MarketRateLimit, ReadUser
+from app.controllers.deps import AppSettings, MarketRateLimit, ReadUser
 from app.core.errors import AppError
-from app.schemas.common import ErrorResponse
-from app.schemas.market import MAX_WINDOW_DAYS, Candle, CandlesResponse
+from app.models.schemas.common import ErrorResponse
+from app.models.schemas.market import MAX_WINDOW_DAYS, Candle, CandlesResponse
 from app.services import market
 
 router = APIRouter(

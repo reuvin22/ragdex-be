@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from app.core.errors import AppError
 from app.core.security import RateLimiter, get_current_user, get_verified_user
-from app.schemas.trade import TradeCreate
+from app.models.schemas.trade import TradeCreate
 from fastapi.testclient import TestClient
 
 
@@ -42,7 +42,7 @@ def test_write_requires_a_confirmed_email(app, unverified_user) -> None:
 def test_read_does_not_require_a_confirmed_email(
     app, unverified_user, monkeypatch
 ) -> None:
-    from app.repositories import trades as repo
+    from app.models.repositories import trades as repo
 
     monkeypatch.setattr(repo, "list_trades", lambda uid, *, limit, cursor: ([], None))
     app.dependency_overrides[get_current_user] = lambda: unverified_user
@@ -132,7 +132,7 @@ def test_oversized_body_is_refused_before_the_route() -> None:
 
 
 def test_error_envelope_never_leaks_internals(app, monkeypatch) -> None:
-    from app.repositories import trades as repo
+    from app.models.repositories import trades as repo
 
     def explode(uid, *, limit, cursor):
         raise RuntimeError("connection string postgres://user:password@host/db")

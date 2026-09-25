@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.schemas.coach import CoachTurn
-from app.schemas.trade import Trade
+from app.models.schemas.coach import CoachTurn
+from app.models.schemas.trade import Trade
 from app.services import openrouter
 from app.services.coach import _no_repeats, ask, build_system_prompt
 from app.services.stats import summarise

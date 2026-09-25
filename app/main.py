@@ -16,10 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.v1.router import api_router
-from app.api.v1.routes import health
+from app.controllers.v1 import health
+from app.controllers.v1.router import api_router
 from app.core.config import Settings, get_settings
-from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import (
     BodySizeLimitMiddleware,
@@ -27,6 +26,7 @@ from app.core.middleware import (
     SecurityHeadersMiddleware,
 )
 from app.db.firestore import init_firebase
+from app.views.errors import register_exception_handlers
 
 logger = logging.getLogger(__name__)
 

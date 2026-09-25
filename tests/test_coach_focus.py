@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.schemas.trade import Trade
+from app.models.schemas.trade import Trade
 from app.services.coach import build_system_prompt, headline_facts
 from app.services.stats import summarise
 

@@ -9,7 +9,7 @@ ask about somebody they have not met.
 from __future__ import annotations
 
 from app.core.security import get_current_user
-from app.repositories.directory import MIN_QUERY, search
+from app.models.repositories.directory import MIN_QUERY, search
 from fastapi.testclient import TestClient
 
 
@@ -20,7 +20,7 @@ def test_short_searches_never_reach_the_database(monkeypatch) -> None:
     def explode():  # pragma: no cover - must never be reached
         raise AssertionError("A too-short search reached Firestore.")
 
-    monkeypatch.setattr("app.repositories.directory._collection", explode)
+    monkeypatch.setattr("app.models.repositories.directory._collection", explode)
 
     for term in ("", "a", "ab", "  ab  "):
         assert search(term, exclude_uid="anyone") == []
@@ -56,7 +56,7 @@ def test_a_chat_token_is_only_ever_for_the_caller(
         return b"token-for-" + uid.encode()
 
     monkeypatch.setattr(
-        "app.api.v1.routes.chat.firebase_auth.create_custom_token",
+        "app.controllers.v1.chat.firebase_auth.create_custom_token",
         fake_create_custom_token,
     )
     app.dependency_overrides[get_current_user] = lambda: verified_user

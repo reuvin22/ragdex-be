@@ -13,22 +13,36 @@ search and chat all happen here.
 .
 ├── app/
 │   ├── main.py              app factory: settings, middleware, routers
-│   ├── core/                config, auth, errors, logging, middleware
-│   ├── api/
-│   │   ├── deps.py          the dependencies routes are allowed to use
-│   │   └── v1/              versioned routes, assembled in router.py
-│   ├── schemas/             pydantic request/response models
+│   ├── core/                config, auth, error types, logging, middleware
+│   ├── controllers/
+│   │   ├── deps.py          the dependencies controllers may use
+│   │   └── v1/              versioned controllers, assembled in router.py
+│   ├── models/
+│   │   ├── schemas/         pydantic request/response models
+│   │   └── repositories/    the only code that touches Firestore
+│   ├── views/               rendering — the JSON error envelope, email HTML
 │   ├── services/            business logic — stats, coach, insights
-│   ├── repositories/        the only code that touches Firestore
 │   └── db/firestore.py      Admin SDK setup
 ├── coach.md                 the coach’s voice, read at request time
 └── tests/
 ```
 
-The rule the structure encodes: routes validate and delegate, services decide,
-repositories persist. A route never imports Firestore, and a service never sees
-a `Request`. That is what keeps `services/stats.py` — where every number in the
-product comes from — testable without a network.
+Model, view, controller, with the decisions in a fourth layer. The rule the
+structure encodes: controllers validate and delegate, services decide,
+repositories persist. A controller never imports Firestore, and a service never
+sees a `Request`. That is what keeps `services/stats.py` — where every number in
+the product comes from — testable without a network.
+
+`views/` is small, and honestly so: a JSON API renders almost nothing by hand.
+What lives there is the work that genuinely turns a result into bytes — the
+error envelope every failure is wrapped in, and the table-based HTML of the
+verification email. The exceptions themselves stay in `core/errors.py`, because
+a service raising `NotFoundError` is stating a fact, not choosing a status code.
+
+`services/` sits outside the triad deliberately. Folding it into the model would
+put coach prompting and R2 signing next to Firestore documents; leaving it out
+would push that logic into controllers, which is the failure mode the split
+exists to prevent.
 
 ## Running it
 
@@ -71,7 +85,7 @@ addresses are registered.
 `WriteUser`; the distinction is visible in every signature.
 
 **The Admin SDK bypasses Firestore rules entirely.** That is why every function
-in `repositories/` takes `uid` first and reaches data through
+in `models/repositories/` takes `uid` first and reaches data through
 `trades_collection(uid)`. There is no code path that builds a query spanning
 accounts. If one is ever added, tenant isolation is gone — the rules are not
 there to catch it.

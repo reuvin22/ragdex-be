@@ -24,7 +24,7 @@ from google.cloud.firestore_v1 import (
 from app.core.crypto import seal_fields, unseal_fields
 from app.core.errors import AppError, NotFoundError
 from app.db.firestore import journal_collection
-from app.schemas.trade import Trade, TradeCreate, TradeUpdate, TradingSession
+from app.models.schemas.trade import Trade, TradeCreate, TradeUpdate, TradingSession
 
 MAX_PAGE_SIZE = 200
 

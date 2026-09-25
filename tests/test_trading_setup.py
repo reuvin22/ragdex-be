@@ -11,9 +11,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.repositories.trades import _sessions_of, session_for
-from app.schemas.profile import Profile
-from app.schemas.trade import Trade
+from app.models.repositories.trades import _sessions_of, session_for
+from app.models.schemas.profile import Profile
+from app.models.schemas.trade import Trade
 from app.services.coach import trading_setup
 from app.services.stats import summarise
 

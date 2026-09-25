@@ -19,7 +19,7 @@ import httpx
 
 from app.core.config import Settings
 from app.core.errors import AppError, UpstreamError
-from app.services.email_template import verification_html, verification_text
+from app.views.email_template import verification_html, verification_text
 
 logger = logging.getLogger(__name__)
 

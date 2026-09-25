@@ -243,7 +243,7 @@ def test_reading_your_own_object_returns_a_signed_url(
 def test_readiness_names_each_missing_r2_setting(app, monkeypatch) -> None:
     """"R2 is not configured" when three of the four are set is the least
     useful thing that endpoint could say."""
-    from app.api.v1.routes import health
+    from app.controllers.v1 import health
     from app.core.config import Settings
 
     monkeypatch.setattr(

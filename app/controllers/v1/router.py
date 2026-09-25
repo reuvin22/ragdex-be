@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1.routes import (
+from app.controllers.v1 import (
     auth,
     chat,
     coach,

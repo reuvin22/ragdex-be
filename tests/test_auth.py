@@ -12,7 +12,7 @@ from typing import ClassVar
 import pytest
 from app.core.errors import AppError
 from app.core.security import get_current_user
-from app.schemas.auth import Credentials, Registration
+from app.models.schemas.auth import Credentials, Registration
 from app.services.identity import CredentialsError, _translate
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -129,11 +129,11 @@ def test_the_session_dependency_is_what_routes_depend_on(
         provider_data: ClassVar[list[object]] = []
 
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.firebase_auth.get_user",
+        "app.controllers.v1.auth.firebase_auth.get_user",
         lambda uid: AlreadyVerified(),
     )
     monkeypatch.setattr(
-        "app.api.v1.routes.auth.profile_repo.is_confirmed", lambda uid: True
+        "app.controllers.v1.auth.profile_repo.is_confirmed", lambda uid: True
     )
     app.dependency_overrides[get_current_user] = lambda: verified_user
 
