@@ -13,10 +13,12 @@ object it is without trusting anything the caller said.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Path, Query
+from fastapi.responses import RedirectResponse
 
 from app.controllers.deps import AppSettings, ReadUser, WriteUser
-from app.core.errors import AppError, PermissionDeniedError
+from app.core.errors import AppError, NotFoundError, PermissionDeniedError
+from app.core.security import anonymous_rate_limit
 from app.models.schemas.common import ErrorResponse
 from app.models.schemas.upload import ReadUrl, UploadRequest, UploadSlot
 from app.services import r2
@@ -82,4 +84,49 @@ def read_slot(
     return ReadUrl(
         url=r2.presign_get(key=key, settings=settings),
         expires_in=settings.r2_url_ttl_seconds,
+    )
+
+
+@router.get(
+    "/public/{key:path}",
+    summary="Fetch a publicly readable object",
+    dependencies=[Depends(anonymous_rate_limit)],
+    responses={
+        302: {"description": "Redirect to a freshly signed URL"},
+        404: {"model": ErrorResponse, "description": "Not a public object"},
+    },
+)
+def public_object(
+    settings: AppSettings,
+    key: str = Path(min_length=3, max_length=256),
+) -> RedirectResponse:
+    """Serve an object that has no reader to authenticate.
+
+    This exists for one thing: images a coach puts in an invitation email. A
+    mail client opens that message days later carrying nobody's session, and
+    Gmail fetches through its own proxy — so a signed URL handed out at send
+    time would be dead long before anyone read it.
+
+    The bytes still do not come through this service. It signs and redirects,
+    so R2 serves the object and a free-tier instance carries a 302 rather than
+    a megabyte.
+
+    What keeps this from being an open door is ``r2.is_public``: only the
+    ``university/`` prefix is servable, only coaches can write there, and
+    everything in it is written to be posted to strangers. A key in any other
+    folder is refused here exactly as if it did not exist — not "forbidden",
+    because distinguishing the two would confirm which keys are real.
+    """
+    if not r2.is_public(key):
+        raise NotFoundError("No such object.")
+
+    # Unconfigured storage raises a 501 from inside _presign, which is the one
+    # place that decision is made — repeating the check here would be a second
+    # copy of it to keep in step.
+    return RedirectResponse(
+        url=r2.presign_get(key=key, settings=settings),
+        status_code=302,
+        # Long enough that a mail client's proxy fetches once, short enough
+        # that removing an image from a template eventually takes effect.
+        headers={"Cache-Control": "public, max-age=3600"},
     )

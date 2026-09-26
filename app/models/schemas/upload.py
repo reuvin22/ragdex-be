@@ -12,7 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 #: smaller reason; the real one is that R2 lifecycle rules match on prefix, so
 #: this layout can say "expire ai/ after ninety days" and leave profile photos
 #: alone. A uid-first layout cannot express that at all.
-UploadKind = Literal["profile", "charts", "ai", "messages"]
+#: ``university`` holds images for invitation email templates, and is the
+#: one folder served publicly — a mail client has no session to read with.
+UploadKind = Literal["profile", "charts", "ai", "messages", "university"]
 
 
 class UploadRequest(BaseModel):

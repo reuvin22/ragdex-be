@@ -65,7 +65,36 @@ def _host(settings: Settings) -> str:
 
 #: The only folders the bucket has. A key naming anything else is not a key
 #: this service issued, whatever else is true of it.
-FOLDERS = frozenset({"profile", "charts", "ai", "messages"})
+#:
+#: ``university`` is the odd one and worth the sentence. The other four hold
+#: things only their owner is shown; this one holds images a coach puts in an
+#: invitation email, and an email is read days later by a mail client that
+#: will not be carrying anybody's session. So these are fetched through a
+#: public redirect (see ``PUBLIC_FOLDERS``) rather than a signed read, and a
+#: coach putting something private in a mail template is putting it somewhere
+#: public. The editor says so.
+FOLDERS = frozenset({"profile", "charts", "ai", "messages", "university"})
+
+#: Folders whose objects are served to anyone who has the key.
+#:
+#: Deliberately a separate, smaller set. ``FOLDERS`` answers "is this a key we
+#: issued"; this answers "may a stranger fetch it", and the two must never
+#: drift into being the same question.
+PUBLIC_FOLDERS = frozenset({"university"})
+
+
+def is_public(key: str) -> bool:
+    """Whether this object may be served without a session.
+
+    Same positional discipline as :func:`owns`: traversal is refused outright
+    and the folder has to be exactly the first segment, so no amount of
+    creative naming moves a private object into a public prefix.
+    """
+    if ".." in key:
+        return False
+
+    parts = key.split("/")
+    return len(parts) >= 3 and parts[0] in PUBLIC_FOLDERS
 
 
 def object_key(uid: str, kind: str, content_type: str) -> str:

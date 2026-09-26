@@ -139,6 +139,13 @@ every name it is commonly saved under.
 | `POST` | `/api/v1/coach/chat` | Journal read server-side, never from the body. |
 | `GET` | `/api/v1/insights/behavioral-leak` | `needed` when history is too short. |
 | `GET` | `/api/v1/market/candles` | Public market data, not yours. 503 when unconfigured. |
+| `GET/POST` | `/api/v1/university/students` | Your roster; figures derived from each journal. |
+| `GET` | `/api/v1/university/students/{uid}/journal` | A student's trades. Refused without an accepted enrolment. |
+| `POST` | `/api/v1/university/invites` | Invite by email. Sends the coach's template. |
+| `POST` | `/api/v1/university/invitations/{uid}/accept` | `{uid}` names the coach, not you. |
+| `GET/PUT` | `/api/v1/university/settings` | The programme and its invitation email. Markup sanitised on write. |
+| `GET/POST` | `/api/v1/community/posts` | The public feed. |
+| `GET` | `/api/v1/uploads/public/{key}` | 302 to a signed URL. `university/` keys only, no session. |
 | `GET` | `/api/v1/chat/directory` | Find a trader by email. Three-character floor. |
 | `GET/POST` | `/api/v1/chat/contacts` | Your conversations; opening a new one. |
 | `GET` | `/api/v1/chat/threads/{uid}` | One conversation, addressed by person. |

@@ -19,12 +19,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Path, status
 
-from app.controllers.deps import ReadUser, StandardRateLimit, WriteUser
+from app.controllers.deps import AppSettings, ReadUser, StandardRateLimit, WriteUser
 from app.core.errors import AppError, NotFoundError, PermissionDeniedError
 from app.models.repositories import directory as directory_repo
 from app.models.repositories import enrolment as enrolment_repo
 from app.models.repositories import profiles as profiles_repo
 from app.models.repositories import trades as trades_repo
+from app.models.repositories import university_settings as settings_repo
 from app.models.schemas.common import ErrorResponse, Message
 from app.models.schemas.trade import TradePage
 from app.models.schemas.university import (
@@ -33,7 +34,9 @@ from app.models.schemas.university import (
     MyCoach,
     SentInviteList,
     StudentList,
+    UniversitySettings,
 )
+from app.services import email as email_service
 from app.services import university as service
 
 router = APIRouter(
@@ -87,7 +90,9 @@ async def my_coach(user: ReadUser) -> MyCoach:
         404: {"model": ErrorResponse, "description": "No account at that address"},
     },
 )
-async def invite(user: WriteUser, payload: InviteRequest) -> Message:
+async def invite(
+    user: WriteUser, payload: InviteRequest, app_settings: AppSettings
+) -> Message:
     """Invite by email. The invitation is pending until they accept.
 
     Answers 404 for an address with no account, which does tell the caller
@@ -105,6 +110,30 @@ async def invite(user: WriteUser, payload: InviteRequest) -> Message:
         raise AppError("You cannot invite yourself.", code="invalid")
 
     enrolment_repo.invite(user.uid, found.uid, note=payload.note)
+
+    # The row is written first and the mail sent second, deliberately. A send
+    # that fails leaves an invitation the student can still find on their own
+    # screen; a row that failed to write would leave a mail pointing at
+    # nothing. So the durable half goes first and the delivery is best effort.
+    try:
+        await email_service.send_invitation(
+            email=found.email,
+            student_name=found.display_name,
+            coach_name=user.name or (user.email or "Your coach"),
+            note=payload.note,
+            settings_record=settings_repo.get_settings(user.uid),
+            settings=app_settings,
+        )
+    except AppError as exc:
+        # Reported rather than swallowed: a coach who thinks a mail went out
+        # will sit waiting on a reply to something nobody received.
+        return Message(
+            message=(
+                f"{found.email} can now accept from their My University screen, "
+                f"but the email did not go out: {exc.message}"
+            )
+        )
+
     return Message(message=f"Invitation sent to {found.email}.")
 
 
@@ -198,3 +227,32 @@ async def student_journal(user: ReadUser, uid: str = OtherUid) -> TradePage:
 
     items, next_cursor = trades_repo.list_trades(uid, limit=trades_repo.MAX_PAGE_SIZE)
     return TradePage(items=items, next_cursor=next_cursor)
+
+
+@router.get(
+    "/settings",
+    response_model=UniversitySettings,
+    summary="Your programme and its invitation email",
+)
+async def read_settings(user: ReadUser) -> UniversitySettings:
+    """Empty rather than 404 for a coach who has never opened this."""
+    return settings_repo.get_settings(user.uid)
+
+
+@router.put(
+    "/settings",
+    response_model=UniversitySettings,
+    summary="Save your programme and invitation email",
+    responses={403: {"model": ErrorResponse, "description": "Not a coach account"}},
+)
+async def write_settings(
+    user: WriteUser, payload: UniversitySettings
+) -> UniversitySettings:
+    """The three markup sections are sanitised before they are stored.
+
+    What comes back is what was kept, not what was sent — so an editor that
+    round-trips this sees exactly what a recipient will, and a tag that was
+    dropped is visibly dropped rather than silently dropped at send time.
+    """
+    _require_coach(user.uid)
+    return settings_repo.save_settings(user.uid, payload)

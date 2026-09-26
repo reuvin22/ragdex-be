@@ -108,3 +108,36 @@ class MyCoach(BaseModel):
     """Null rather than a 404: having no coach is an ordinary answer."""
 
     coach: CoachSummary | None = None
+
+
+class EmailTemplate(BaseModel):
+    """The invitation a coach composes, in three parts.
+
+    Header, body and footer rather than one blob, because a mail shell has to
+    own the outer table and the parts have different jobs: a header is branding,
+    a footer is the small print, and only the body is the message. Splitting
+    them also means the shell can put the accept button between body and footer
+    without an author having to leave a hole for it.
+
+    Everything is sanitised on the way in — see ``views/mail_html.py``. What is
+    stored is already what will be sent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str = Field(default="", max_length=200)
+    header_html: str = Field(default="", max_length=20_000)
+    body_html: str = Field(default="", max_length=20_000)
+    footer_html: str = Field(default="", max_length=20_000)
+    #: The one colour the shell takes from the coach, for the button and rules.
+    accent: str = Field(default="", max_length=32)
+
+
+class UniversitySettings(BaseModel):
+    """A coach's programme, as they describe it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=120)
+    blurb: str = Field(default="", max_length=300)
+    template: EmailTemplate = Field(default_factory=EmailTemplate)

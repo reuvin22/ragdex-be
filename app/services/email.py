@@ -19,7 +19,9 @@ import httpx
 
 from app.core.config import Settings
 from app.core.errors import AppError, UpstreamError
+from app.models.schemas.university import UniversitySettings
 from app.views.email_template import verification_html, verification_text
+from app.views.invitation_email import invitation_html, invitation_text
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,61 @@ def check_cooldown(uid: str) -> None:
         raise CooldownError()
 
 
+async def _deliver(payload: dict[str, Any], *, api_key: Any, failed: str) -> None:
+    """Hand one message to Brevo.
+
+    Extracted so a second kind of mail does not mean a second copy of the
+    error handling — which is where the useful diagnosis of a 401 lives, and
+    the last place worth having two of.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            response = await client.post(
+                _ENDPOINT,
+                headers={
+                    "api-key": api_key.get_secret_value(),
+                    "content-type": "application/json",
+                    "accept": "application/json",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("Brevo unreachable: %s", type(exc).__name__)
+        raise UpstreamError(failed) from exc
+
+    if not response.is_success:
+        # Brevo answers failures as {"code": ..., "message": ...}. Those two
+        # fields are the diagnosis and neither carries the key, so they are
+        # logged by name rather than the body being dumped whole — an earlier
+        # version logged the status alone, which told nobody anything.
+        detail: dict[str, Any] = {}
+        try:
+            parsed = response.json()
+            if isinstance(parsed, dict):
+                detail = parsed
+        except ValueError:
+            pass
+
+        logger.error(
+            "Brevo rejected the send: HTTP %s %s — %s",
+            response.status_code,
+            str(detail.get("code", "no-code"))[:60],
+            str(detail.get("message", "no message"))[:300],
+        )
+
+        if response.status_code in (401, 403):
+            # Almost always one of two things, and neither is obvious from the
+            # status: a key that is wrong, or Brevo's "Authorised IPs" setting
+            # refusing the call because the server's address is not on the list.
+            logger.error(
+                "Check the Brevo API key, and Brevo > Security > Authorised IPs "
+                "— a restricted account refuses calls from unlisted servers."
+            )
+
+        raise UpstreamError("The email provider rejected the request.")
+
+
+
 async def send_verification(
     *, uid: str, email: str, name: str, link: str, settings: Settings
 ) -> None:
@@ -106,50 +163,77 @@ async def send_verification(
         "tags": ["verification"],
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            response = await client.post(
-                _ENDPOINT,
-                headers={
-                    "api-key": api_key.get_secret_value(),
-                    "content-type": "application/json",
-                    "accept": "application/json",
-                },
-                json=payload,
-            )
-    except httpx.HTTPError as exc:
-        logger.warning("Brevo unreachable: %s", type(exc).__name__)
-        raise UpstreamError("Could not send the verification email.") from exc
-
-    if not response.is_success:
-        # Brevo answers failures as {"code": ..., "message": ...}. Those two
-        # fields are the diagnosis and neither carries the key, so they are
-        # logged by name rather than the body being dumped whole — an earlier
-        # version logged the status alone, which told nobody anything.
-        detail: dict[str, Any] = {}
-        try:
-            parsed = response.json()
-            if isinstance(parsed, dict):
-                detail = parsed
-        except ValueError:
-            pass
-
-        logger.error(
-            "Brevo rejected the send: HTTP %s %s — %s",
-            response.status_code,
-            str(detail.get("code", "no-code"))[:60],
-            str(detail.get("message", "no message"))[:300],
-        )
-
-        if response.status_code in (401, 403):
-            # Almost always one of two things, and neither is obvious from the
-            # status: a key that is wrong, or Brevo's "Authorised IPs" setting
-            # refusing the call because the server's address is not on the list.
-            logger.error(
-                "Check the Brevo API key, and Brevo > Security > Authorised IPs "
-                "— a restricted account refuses calls from unlisted servers."
-            )
-
-        raise UpstreamError("The email provider rejected the request.")
+    await _deliver(
+        payload,
+        api_key=api_key,
+        failed="Could not send the verification email.",
+    )
 
     _last_sent[uid] = time.monotonic()
+
+
+async def send_invitation(
+    *,
+    email: str,
+    student_name: str,
+    coach_name: str,
+    note: str,
+    settings_record: UniversitySettings,
+    settings: Settings,
+) -> None:
+    """Send a coach's invitation to a trader.
+
+    The recipient here *is* taken from a request, which is the one place this
+    service does that — and it is why the route above it refuses an address
+    with no account. An invitation can only reach somebody who already signed
+    up, so this is not a way to aim mail from our domain at a stranger.
+
+    No cooldown keyed on the coach: a coach enrolling a cohort sends several in
+    a row legitimately. The route's standard rate limit is what bounds it.
+    """
+    api_key = settings.brevo_api_key
+    absent = missing_settings(settings)
+
+    if absent or api_key is None:
+        raise AppError(
+            "Email sending is not configured on the server: "
+            + ", ".join(absent)
+            + " not set.",
+            status_code=501,
+            code="not_configured",
+        )
+
+    brand = settings.brevo_sender_name
+    programme = settings_record.name.strip() or f"{coach_name}'s programme"
+    subject = (
+        settings_record.template.subject.strip()
+        or f"{coach_name} invited you to {programme}"
+    )
+
+    payload = {
+        "sender": {"email": settings.brevo_sender_email, "name": brand},
+        "to": [{"email": email, "name": student_name or email}],
+        # The coach writes the subject; the sender name stays ours, so the
+        # message can never look like it came from somewhere it did not.
+        "subject": subject[:200],
+        "htmlContent": invitation_html(
+            settings=settings_record,
+            coach_name=coach_name,
+            student_name=student_name,
+            note=note,
+            app_url=settings.app_url,
+            brand=brand,
+        ),
+        "textContent": invitation_text(
+            settings=settings_record,
+            coach_name=coach_name,
+            student_name=student_name,
+            note=note,
+            app_url=settings.app_url,
+        ),
+        "tags": ["invitation"],
+    }
+
+    await _deliver(
+        payload, api_key=api_key, failed="Could not send the invitation email."
+    )

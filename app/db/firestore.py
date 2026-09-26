@@ -29,6 +29,7 @@ _PROFILES = "user-profiles"
 _JOURNAL = "journal"
 _BILLINGS = "billings"
 _ENROLMENTS = "enrolments"
+_UNIVERSITIES = "universities"
 _POSTS = "posts"
 
 
@@ -145,3 +146,12 @@ def posts_collection() -> Any:
     directory carries anyway — and nothing is copied here from the journal.
     """
     return get_client().collection(_POSTS)
+
+
+def university_doc(coach_uid: str) -> Any:
+    """One coach's programme: its name, and the invitation email they wrote.
+
+    Keyed by the coach rather than by a generated id, because a coach has one
+    programme and looking it up should not need a query.
+    """
+    return get_client().collection(_UNIVERSITIES).document(coach_uid)
