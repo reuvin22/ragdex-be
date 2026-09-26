@@ -199,7 +199,7 @@ def test_an_invite_refuses_an_unexpected_field(client, coach_profile):
     assert response.status_code == 422
 
 
-def test_accepting_answers_only_your_own_invitation(client, monkeypatch):
+def test_starting_answers_only_your_own_invitation(client, monkeypatch):
     """The row is addressed <coach>_<caller>, so the caller is always the
     student half — there is no id here that could name somebody else's."""
     asked: list[tuple[str, str]] = []
@@ -223,14 +223,14 @@ def test_accepting_answers_only_your_own_invitation(client, monkeypatch):
         lambda coach, student: settled.append((coach, student)) or "joined",
     )
 
-    response = client.post("/api/v1/university/invitations/coach-7/accept")
+    response = client.post("/api/v1/university/invitations/coach-7/start")
 
     assert response.status_code == 200
     assert asked == [("coach-7", "trader-1")]
     assert settled == [("coach-7", "trader-1")]
 
 
-def test_accepting_does_not_enrol_before_settling(client, monkeypatch):
+def test_starting_does_not_enrol_before_settling(client, monkeypatch):
     """Accepting must not write `active` itself.
 
     It used to: `respond` set the row active and `settle` corrected it a
@@ -252,16 +252,16 @@ def test_accepting_does_not_enrol_before_settling(client, monkeypatch):
     )
 
     def _never(*args, **kwargs):
-        raise AssertionError("accept wrote a status of its own")
+        raise AssertionError("start wrote a status of its own")
 
     monkeypatch.setattr("app.controllers.v1.university.enrolment_repo.respond", _never)
 
     assert (
-        client.post("/api/v1/university/invitations/coach-7/accept").status_code == 200
+        client.post("/api/v1/university/invitations/coach-7/start").status_code == 200
     )
 
 
-def test_accepting_something_already_settled_is_a_404(client, monkeypatch):
+def test_starting_something_already_settled_is_a_404(client, monkeypatch):
     monkeypatch.setattr(
         "app.controllers.v1.university.enrolment_repo.coaches_of", lambda uid: []
     )
@@ -274,7 +274,7 @@ def test_accepting_something_already_settled_is_a_404(client, monkeypatch):
     )
 
     assert (
-        client.post("/api/v1/university/invitations/coach-7/accept").status_code == 404
+        client.post("/api/v1/university/invitations/coach-7/start").status_code == 404
     )
 
 
@@ -284,7 +284,7 @@ def test_you_cannot_hold_two_coaches(client, monkeypatch):
         lambda uid: [object()],
     )
 
-    response = client.post("/api/v1/university/invitations/coach-7/accept")
+    response = client.post("/api/v1/university/invitations/coach-7/start")
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "already_enrolled"
@@ -444,7 +444,7 @@ def test_approval_names_the_student_and_the_calling_coach(
 # ------------------------------------------- approval, signing, enrolment
 
 
-def test_accepting_directly_is_refused_when_the_coach_has_a_form(client, monkeypatch):
+def test_starting_directly_is_refused_when_the_coach_has_a_form(client, monkeypatch):
     """The form must not be skippable.
 
     The join screen only offers "accept" when there is no intake form, but the
@@ -465,11 +465,11 @@ def test_accepting_directly_is_refused_when_the_coach_has_a_form(client, monkeyp
     )
 
     def _never(*args, **kwargs):
-        raise AssertionError("the invitation was accepted despite a form")
+        raise AssertionError("joining began despite a form")
 
     monkeypatch.setattr("app.controllers.v1.university.enrolment_repo.respond", _never)
 
-    response = client.post("/api/v1/university/invitations/coach-7/accept")
+    response = client.post("/api/v1/university/invitations/coach-7/start")
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "form_required"

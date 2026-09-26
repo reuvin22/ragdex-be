@@ -165,13 +165,24 @@ async def invitations(user: ReadUser) -> InvitationList:
 
 
 @router.post(
-    "/invitations/{uid}/accept",
+    "/invitations/{uid}/start",
     response_model=Message,
-    summary="Accept an invitation",
+    summary="Begin joining a program",
     responses={404: {"model": ErrorResponse, "description": "Nothing pending"}},
 )
-async def accept(user: WriteUser, uid: str = OtherUid) -> Message:
-    """`uid` names the coach who invited you, not you.
+async def start(user: WriteUser, uid: str = OtherUid) -> Message:
+    """Open the documents for an invitation with no form in front of it.
+
+    Not "accept" any more, and the rename is the point. Joining is no longer
+    a button somebody presses; it is what completing the program's form and
+    documents amounts to. This only starts that — the enrolment becomes real
+    when the last signature lands, and with documents outstanding this leaves
+    the row in `documents`, not `active`.
+
+    A program that *does* have an intake form refuses here: the form is the
+    way in, and this would be a way round it.
+
+    `uid` names the coach who invited you, not you.
 
     The row is addressed as ``<coach>_<caller>``, so a caller can only ever
     answer an invitation that was sent to them — there is no id here that
@@ -183,9 +194,9 @@ async def accept(user: WriteUser, uid: str = OtherUid) -> Message:
             code="already_enrolled",
         )
 
-    # A coach with an intake form asked a question, and this endpoint would
-    # otherwise be a way round it — straight from invited to enrolled, with
-    # neither the answers nor the coach's decision. The form is the route in.
+    # A coach with an intake form asked a question, and this would otherwise
+    # be a way round it — straight past both the answers and the coach's
+    # decision. The form is the route in.
     if documents_repo.intake_for(uid) is not None:
         raise AppError(
             "Answer this coach's form first — they review it before you join.",

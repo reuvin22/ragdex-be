@@ -388,6 +388,7 @@ def settle(coach_uid: str, student_uid: str, *, as_coach: bool = False) -> str:
         enrolment_repo.set_status(coach_uid, student_uid, "active")
         return "Approved and enrolled." if as_coach else "You have joined the program."
 
+
     enrolment_repo.set_status(coach_uid, student_uid, "documents")
     count = len(outstanding)
     noun = "document" if count == 1 else "documents"
