@@ -420,17 +420,34 @@ def clear_intake(coach_uid: str, *, except_id: str) -> None:
             doc.reference.set({"isIntake": False}, merge=True)
 
 
-def required_ids(coach_uid: str) -> list[str]:
-    """The documents a student has to complete before they are enrolled.
+def required_documents(coach_uid: str) -> list[UniversityDocument]:
+    """What a student has to complete, in the order they will be asked.
 
-    Published and required. A draft cannot block somebody, and an optional
+    Published and required: a draft cannot block somebody, and an optional
     document is optional — neither belongs in a gate.
+
+    **Forms before agreements.** A program asks about you, then asks you to
+    agree to something; doing that the other way round means signing terms
+    before saying who you are, and the answers are often what the terms are
+    about. Within each kind, oldest first — the order the coach built them,
+    which is the order they were thinking in.
     """
-    return [
-        document.id
-        for document in published_for(coach_uid)
-        if document.required
+    documents = [
+        document for document in published_for(coach_uid) if document.required
     ]
+
+    forms = sorted(
+        (d for d in documents if d.kind == "form"), key=_created
+    )
+    agreements = sorted(
+        (d for d in documents if d.kind != "form"), key=_created
+    )
+
+    return [*forms, *agreements]
+
+
+def required_ids(coach_uid: str) -> list[str]:
+    return [document.id for document in required_documents(coach_uid)]
 
 
 def unsigned_ids(student_uid: str, document_ids: list[str]) -> list[str]:

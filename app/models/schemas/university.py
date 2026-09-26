@@ -157,6 +157,20 @@ class UniversitySettings(BaseModel):
     template: EmailTemplate = Field(default_factory=EmailTemplate)
 
 
+class IntakeStep(BaseModel):
+    """One thing a student will be asked to do, before they start.
+
+    The review screen lists these. "Review" meant nothing while it showed only
+    a coach's name — what is worth reviewing is what is about to be asked.
+    """
+
+    id: str
+    kind: str
+    title: str
+    #: Whether they have already done this one.
+    done: bool = False
+
+
 class Intake(BaseModel):
     """What a newly invited trader is shown when they follow the email.
 
@@ -179,6 +193,8 @@ class Intake(BaseModel):
     #: were. The screen needs both to say "2 of 3 left" rather than just "2".
     outstanding: int = 0
     required_total: int = 0
+    #: Everything the program asks for, in the order it will be asked.
+    steps: list[IntakeStep] = Field(default_factory=list)
 
 
 class Application(BaseModel):

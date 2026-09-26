@@ -321,3 +321,68 @@ def test_check_complete_accepts_a_filled_form():
     check_complete(
         document, SubmissionWrite(answers=[Answer(question_id="q1", value="x")])
     )
+
+
+# ------------------------------------------------------- the signing order
+
+
+def test_forms_come_before_agreements(monkeypatch):
+    """A program asks about you, then asks you to agree to something.
+
+    The other way round means signing terms before saying who you are — and
+    the answers are often what the terms are about. This ran newest-first
+    before, which put an agreement ahead of the form that should precede it.
+    """
+    from datetime import UTC, datetime
+
+    from app.models.repositories import documents as repo
+
+    def _doc(doc_id: str, kind: str, day: int) -> UniversityDocument:
+        return UniversityDocument(
+            id=doc_id,
+            coach_uid="c1",
+            kind=kind,
+            title=doc_id,
+            required=True,
+            published=True,
+            created_at=datetime(2026, 9, day, tzinfo=UTC),
+        )
+
+    # Deliberately shuffled, and with the agreement created first.
+    monkeypatch.setattr(
+        repo,
+        "published_for",
+        lambda coach: [
+            _doc("agreement-b", "agreement", 4),
+            _doc("form-b", "form", 3),
+            _doc("agreement-a", "agreement", 1),
+            _doc("form-a", "form", 2),
+        ],
+    )
+
+    assert repo.required_ids("c1") == [
+        # Forms first, oldest first within each kind.
+        "form-a",
+        "form-b",
+        "agreement-a",
+        "agreement-b",
+    ]
+
+
+def test_an_optional_document_is_not_part_of_the_run(monkeypatch):
+    from app.models.repositories import documents as repo
+
+    monkeypatch.setattr(
+        repo,
+        "published_for",
+        lambda coach: [
+            UniversityDocument(
+                id="d1", coach_uid="c1", kind="form", title="Optional", required=False
+            ),
+            UniversityDocument(
+                id="d2", coach_uid="c1", kind="form", title="Required", required=True
+            ),
+        ],
+    )
+
+    assert repo.required_ids("c1") == ["d2"]

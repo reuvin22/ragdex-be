@@ -30,6 +30,7 @@ from app.models.schemas.university import (
     CoachSummary,
     Inbox,
     Intake,
+    IntakeStep,
     Invitation,
     NextDocument,
     SentInvite,
@@ -292,12 +293,23 @@ def intake_for(student_uid: str) -> Intake:
     programme = settings_repo.get_settings(row.coach_uid)
     form = documents_repo.intake_for(row.coach_uid)
 
-    required = documents_repo.required_ids(row.coach_uid)
-    outstanding = (
-        documents_repo.unsigned_ids(student_uid, required)
-        if row.status == "documents"
-        else []
-    )
+    required = documents_repo.required_documents(row.coach_uid)
+    ids = [document.id for document in required]
+    unsigned = set(documents_repo.unsigned_ids(student_uid, ids))
+
+    # Shown at every stage, not just while signing: somebody deciding whether
+    # to join should be able to see what joining involves.
+    steps = [
+        IntakeStep(
+            id=document.id,
+            kind=document.kind,
+            title=document.title,
+            done=document.id not in unsigned,
+        )
+        for document in required
+    ]
+
+    outstanding = list(unsigned) if row.status == "documents" else []
 
     return Intake(
         status=row.status,
@@ -309,6 +321,7 @@ def intake_for(student_uid: str) -> Intake:
         document_id=form.id if form is not None else "",
         outstanding=len(outstanding),
         required_total=len(required),
+        steps=steps,
     )
 
 
