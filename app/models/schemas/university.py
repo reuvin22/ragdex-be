@@ -134,7 +134,7 @@ class EmailTemplate(BaseModel):
 
 
 class UniversitySettings(BaseModel):
-    """A coach's programme, as they describe it."""
+    """A coach's program, as they describe it."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -17,16 +17,25 @@ search already accepts, and the roster only ever returns people who said yes.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Path, Response, status
 
 from app.controllers.deps import AppSettings, ReadUser, StandardRateLimit, WriteUser
 from app.core.errors import AppError, NotFoundError, PermissionDeniedError
 from app.models.repositories import directory as directory_repo
+from app.models.repositories import documents as documents_repo
 from app.models.repositories import enrolment as enrolment_repo
 from app.models.repositories import profiles as profiles_repo
 from app.models.repositories import trades as trades_repo
 from app.models.repositories import university_settings as settings_repo
 from app.models.schemas.common import ErrorResponse, Message
+from app.models.schemas.documents import (
+    DocumentList,
+    DocumentWrite,
+    Submission,
+    SubmissionList,
+    SubmissionWrite,
+    UniversityDocument,
+)
 from app.models.schemas.trade import TradePage
 from app.models.schemas.university import (
     InvitationList,
@@ -84,7 +93,7 @@ async def my_coach(user: ReadUser) -> MyCoach:
     "/invites",
     response_model=Message,
     status_code=status.HTTP_201_CREATED,
-    summary="Invite a trader to your programme",
+    summary="Invite a trader to your program",
     responses={
         403: {"model": ErrorResponse, "description": "Not a coach account"},
         404: {"model": ErrorResponse, "description": "No account at that address"},
@@ -166,14 +175,14 @@ async def accept(user: WriteUser, uid: str = OtherUid) -> Message:
     """
     if enrolment_repo.coaches_of(user.uid):
         raise AppError(
-            "You already have a coach. Leave that programme before joining another.",
+            "You already have a coach. Leave that program before joining another.",
             code="already_enrolled",
         )
 
     if enrolment_repo.respond(uid, user.uid, accept=True) is None:
         raise NotFoundError("That invitation is no longer waiting.")
 
-    return Message(message="You have joined the programme.")
+    return Message(message="You have joined the program.")
 
 
 @router.post(
@@ -232,7 +241,7 @@ async def student_journal(user: ReadUser, uid: str = OtherUid) -> TradePage:
 @router.get(
     "/settings",
     response_model=UniversitySettings,
-    summary="Your programme and its invitation email",
+    summary="Your program and its invitation email",
 )
 async def read_settings(user: ReadUser) -> UniversitySettings:
     """Empty rather than 404 for a coach who has never opened this."""
@@ -242,7 +251,7 @@ async def read_settings(user: ReadUser) -> UniversitySettings:
 @router.put(
     "/settings",
     response_model=UniversitySettings,
-    summary="Save your programme and invitation email",
+    summary="Save your program and invitation email",
     responses={403: {"model": ErrorResponse, "description": "Not a coach account"}},
 )
 async def write_settings(
@@ -256,3 +265,174 @@ async def write_settings(
     """
     _require_coach(user.uid)
     return settings_repo.save_settings(user.uid, payload)
+
+
+# --------------------------------------------------------------- documents
+#
+# Agreements to sign and forms to answer. The access rule is the same one the
+# rest of this family uses and is worth saying once, here:
+#
+#   * a coach may touch a document whose ``coachUid`` is their own uid;
+#   * a student may read a *published* document belonging to a coach they have
+#     an active enrolment with, and may submit to it;
+#   * nobody else can see that either exists.
+#
+# There is no route that takes a coach uid. A student's documents are found
+# through their own enrolment, which is the same reason `/chat/threads/{uid}`
+# cannot address a conversation the caller is not in.
+
+
+DocumentId = Path(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+def _own_document(uid: str, document_id: str) -> UniversityDocument:
+    """A document the caller wrote, or a 404.
+
+    404 and not 403: telling a stranger that a document exists but is not
+    theirs is telling them it exists.
+    """
+    document = documents_repo.get(document_id)
+    if document.coach_uid != uid:
+        raise NotFoundError("No such document.")
+    return document
+
+
+def _readable_document(uid: str, document_id: str) -> UniversityDocument:
+    """A document the caller may read — as its author, or as a student of its
+    author who has been published to."""
+    document = documents_repo.get(document_id)
+
+    if document.coach_uid == uid:
+        return document
+
+    if document.published and enrolment_repo.is_active(document.coach_uid, uid):
+        return document
+
+    raise NotFoundError("No such document.")
+
+
+@router.get(
+    "/documents",
+    response_model=DocumentList,
+    summary="Agreements and forms",
+)
+async def list_documents(user: ReadUser) -> DocumentList:
+    """Yours if you are a coach; your coach's published ones if you are not.
+
+    A coach sees drafts and a completion count. A student sees only what has
+    been published to them, and only whether *they themselves* have completed
+    it — who else has signed what is nobody else's business.
+    """
+    return DocumentList(documents=service.documents_for(user.uid))
+
+
+@router.post(
+    "/documents",
+    response_model=UniversityDocument,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an agreement or a form",
+    responses={403: {"model": ErrorResponse, "description": "Not a coach account"}},
+)
+async def create_document(user: WriteUser, payload: DocumentWrite) -> UniversityDocument:
+    _require_coach(user.uid)
+    return documents_repo.create(user.uid, payload)
+
+
+@router.put(
+    "/documents/{document_id}",
+    response_model=UniversityDocument,
+    summary="Edit one",
+    responses={404: {"model": ErrorResponse}},
+)
+async def update_document(
+    user: WriteUser, payload: DocumentWrite, document_id: str = DocumentId
+) -> UniversityDocument:
+    """Question ids survive an edit, so answers already collected still line up.
+
+    Editing an agreement that has signatures does not invalidate them — but it
+    does make them stop matching, because a signature records a digest of what
+    was signed. A coach comparing the two can see that the text moved.
+    """
+    _own_document(user.uid, document_id)
+    return documents_repo.update(user.uid, document_id, payload)
+
+
+@router.delete(
+    "/documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete one, and everything sent back to it",
+    responses={404: {"model": ErrorResponse}},
+)
+async def delete_document(user: WriteUser, document_id: str = DocumentId) -> Response:
+    _own_document(user.uid, document_id)
+    documents_repo.delete(document_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/documents/{document_id}",
+    response_model=UniversityDocument,
+    summary="Read one",
+    responses={404: {"model": ErrorResponse}},
+)
+async def read_document(
+    user: ReadUser, document_id: str = DocumentId
+) -> UniversityDocument:
+    document = _readable_document(user.uid, document_id)
+
+    if document.coach_uid == user.uid:
+        document.submission_count = len(documents_repo.submitted_uids(document_id))
+    else:
+        existing = documents_repo.submission_for(document_id, user.uid)
+        document.submitted_at = existing.submitted_at if existing else None
+
+    return document
+
+
+@router.post(
+    "/documents/{document_id}/submit",
+    response_model=Submission,
+    status_code=status.HTTP_201_CREATED,
+    summary="Sign it, or answer it",
+    responses={
+        400: {"model": ErrorResponse, "description": "Something required is missing"},
+        404: {"model": ErrorResponse},
+    },
+)
+async def submit_document(
+    user: WriteUser, payload: SubmissionWrite, document_id: str = DocumentId
+) -> Submission:
+    """The student's own submission, and only their own.
+
+    The uid is the session's; the document is the path's. There is nothing in
+    the body that says who this is from, which is what makes the record worth
+    keeping — a signature a client could address to somebody else is not
+    evidence of anything.
+    """
+    document = _readable_document(user.uid, document_id)
+
+    if document.coach_uid == user.uid:
+        raise AppError("You cannot submit to your own document.", code="invalid")
+
+    service.check_complete(document, payload)
+
+    return documents_repo.submit(
+        document,
+        user.uid,
+        signed_name=payload.signed_name,
+        answers=payload.answers,
+    )
+
+
+@router.get(
+    "/documents/{document_id}/submissions",
+    response_model=SubmissionList,
+    summary="Who has signed or answered",
+    responses={404: {"model": ErrorResponse}},
+)
+async def list_submissions(
+    user: ReadUser, document_id: str = DocumentId
+) -> SubmissionList:
+    """The author's view. A student asking gets the same 404 as a stranger."""
+    _own_document(user.uid, document_id)
+    return service.submissions(user.uid, document_id)

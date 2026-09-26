@@ -1,4 +1,4 @@
-"""A coach's programme and the invitation they wrote.
+"""A coach's program and the invitation they wrote.
 
 One document per coach. What is stored has already been through
 ``views.mail_html.sanitise`` — the cleaning happens on the way in, not on the
@@ -36,10 +36,10 @@ def _to_settings(data: dict[str, Any]) -> UniversitySettings:
 
 
 def get_settings(coach_uid: str) -> UniversitySettings:
-    """The programme, or an empty one.
+    """The program, or an empty one.
 
     Empty rather than a 404: a coach who has never opened the settings screen
-    still has a programme, it just has nothing written in it yet, and the send
+    still has a program, it just has nothing written in it yet, and the send
     path falls back to a default template for exactly that case.
     """
     snapshot = university_doc(coach_uid).get()

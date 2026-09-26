@@ -48,7 +48,7 @@ def default_body(coach_name: str) -> str:
     """
     return (
         f"<p>{escape(coach_name)} has invited you to join their trading "
-        "programme on RagDex.</p>"
+        "program on RagDex.</p>"
         "<p>Accepting lets them read your journal so they can review your "
         "trades with you. It does not let them change anything, and you can "
         "end it whenever you like.</p>"
@@ -89,7 +89,7 @@ def invitation_html(
     accent = _accent(template.accent)
     year = datetime.now(UTC).year
 
-    programme = escape(settings.name.strip() or f"{coach_name}'s programme")
+    program = escape(settings.name.strip() or f"{coach_name}'s program")
     safe_brand = escape(brand)
     safe_link = escape(f"{app_url.rstrip('/')}/#/university", quote=True)
 
@@ -132,7 +132,7 @@ def invitation_html(
 <meta name="x-apple-disable-message-reformatting" />
 <meta name="color-scheme" content="light" />
 <meta name="supported-color-schemes" content="light" />
-<title>{programme}</title>
+<title>{program}</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6">
@@ -148,7 +148,7 @@ def invitation_html(
 </td></tr>
 {footer_block}
 <tr><td style="padding:18px 0 0 0;color:#9ca3af;font-size:12px;line-height:1.55">
-You are reading this because {escape(coach_name)} invited you to {programme} on {safe_brand}. If you were not expecting it, you can ignore this message — nothing happens until you accept, and nobody can see your journal in the meantime.
+You are reading this because {escape(coach_name)} invited you to {program} on {safe_brand}. If you were not expecting it, you can ignore this message — nothing happens until you accept, and nobody can see your journal in the meantime.
 </td></tr>
 <tr><td style="padding:14px 0 0 0;color:#9ca3af;font-size:12px">&copy; {year} {safe_brand}</td></tr>
 </table>

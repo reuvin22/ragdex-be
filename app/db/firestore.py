@@ -30,6 +30,7 @@ _JOURNAL = "journal"
 _BILLINGS = "billings"
 _ENROLMENTS = "enrolments"
 _UNIVERSITIES = "universities"
+_UNIVERSITY_DOCS = "university-docs"
 _POSTS = "posts"
 
 
@@ -149,9 +150,20 @@ def posts_collection() -> Any:
 
 
 def university_doc(coach_uid: str) -> Any:
-    """One coach's programme: its name, and the invitation email they wrote.
+    """One coach's program: its name, and the invitation email they wrote.
 
     Keyed by the coach rather than by a generated id, because a coach has one
-    programme and looking it up should not need a query.
+    program and looking it up should not need a query.
     """
     return get_client().collection(_UNIVERSITIES).document(coach_uid)
+
+
+def documents_collection() -> Any:
+    """Agreements and forms a coach puts in front of their students.
+
+    Flat and carrying a ``coachUid``, like the journal carries a uid: every
+    query filters on it, and the one place that does not — reading a single
+    document by id — is followed immediately by an ownership or enrolment
+    check in the route.
+    """
+    return get_client().collection(_UNIVERSITY_DOCS)

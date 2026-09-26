@@ -204,10 +204,10 @@ async def send_invitation(
         )
 
     brand = settings.brevo_sender_name
-    programme = settings_record.name.strip() or f"{coach_name}'s programme"
+    university = settings_record.name.strip() or f"{coach_name}'s desk"
     subject = (
         settings_record.template.subject.strip()
-        or f"{coach_name} invited you to {programme}"
+        or f"{coach_name} invited you to {university}"
     )
 
     payload = {
