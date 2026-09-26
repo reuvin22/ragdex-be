@@ -31,6 +31,7 @@ from app.models.schemas.university import (
     Inbox,
     Intake,
     Invitation,
+    NextDocument,
     SentInvite,
     StudentSummary,
 )
@@ -429,4 +430,28 @@ def inbox(uid: str) -> Inbox:
         applications=applications(uid),
         signing=signing(uid),
         declined=[invite for invite in sent(uid) if invite.status == "declined"],
+    )
+
+
+def next_document(student_uid: str) -> NextDocument:
+    """Where to send a student next.
+
+    The signing sequence is driven from here rather than from a list in the
+    browser, so the order is the same on every device and a half-finished run
+    picks up where it stopped rather than starting again.
+    """
+    row = enrolment_repo.current_for_student(student_uid)
+    if row is None or row.status not in ("documents", "active"):
+        return NextDocument(done=True)
+
+    required = documents_repo.required_ids(row.coach_uid)
+    unsigned = documents_repo.unsigned_ids(student_uid, required)
+
+    if not unsigned:
+        return NextDocument(done=True, total=len(required))
+
+    return NextDocument(
+        document_id=unsigned[0],
+        remaining=len(unsigned),
+        total=len(required),
     )

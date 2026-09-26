@@ -220,3 +220,23 @@ class Inbox(BaseModel):
     #: have disappeared between approval and joining.
     signing: list[Application] = Field(default_factory=list)
     declined: list[SentInvite] = Field(default_factory=list)
+
+
+class NextDocument(BaseModel):
+    """The next thing a student has to sign, if anything.
+
+    Answers one question — "where do I send them now" — so the client does not
+    have to fetch a list, filter it, and decide. That mattered: the list was
+    the part that was failing to arrive, and a student with a `documents`
+    status and an empty screen had nothing to act on.
+    """
+
+    #: Empty when there is nothing left.
+    document_id: str = ""
+    #: How many are still unsigned, including this one.
+    remaining: int = 0
+    #: How many there were to begin with, for "2 of 3".
+    total: int = 0
+    #: True when the sequence is finished — which for a student in the
+    #: ``documents`` state means they have just been enrolled.
+    done: bool = False

@@ -44,6 +44,7 @@ from app.models.schemas.university import (
     InvitationList,
     InviteRequest,
     MyCoach,
+    NextDocument,
     SentInviteList,
     StudentList,
     UniversitySettings,
@@ -571,3 +572,19 @@ async def inbox(user: ReadUser) -> Inbox:
     — the bell asks the same question for everybody and renders what applies.
     """
     return service.inbox(user.uid)
+
+
+@router.get(
+    "/next",
+    response_model=NextDocument,
+    summary="The next document to sign",
+)
+async def next_document(user: ReadUser) -> NextDocument:
+    """Drives the signing run, one document at a time.
+
+    The client asks this after accepting and after every submission, rather
+    than fetching the whole list and choosing for itself. Two reasons: the
+    order is then the same everywhere, and a student who stopped half way
+    resumes rather than starting again.
+    """
+    return service.next_document(user.uid)

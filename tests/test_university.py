@@ -578,3 +578,72 @@ def test_signing_cannot_enrol_somebody_who_was_never_approved(monkeypatch):
 
     assert complete_if_signed("coach-7", "student-9") is False
     assert moved == []
+
+
+# --------------------------------------------------------- the signing run
+
+
+def _run(monkeypatch, *, status: str | None, required: list[str], unsigned: list[str]):
+    row = (
+        None
+        if status is None
+        else type("Row", (), {"status": status, "coach_uid": "c1"})()
+    )
+
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.current_for_student", lambda uid: row
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.required_ids", lambda coach: required
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.unsigned_ids",
+        lambda student, ids: unsigned,
+    )
+
+
+def test_the_run_points_at_the_first_unsigned_document(client, monkeypatch):
+    _run(monkeypatch, status="documents", required=["d1", "d2"], unsigned=["d1", "d2"])
+
+    body = client.get("/api/v1/university/next").json()
+
+    assert body["document_id"] == "d1"
+    assert body["remaining"] == 2
+    assert body["total"] == 2
+    assert body["done"] is False
+
+
+def test_the_run_advances_as_documents_are_signed(client, monkeypatch):
+    """Resuming, not restarting — the next one is whatever is still unsigned."""
+    _run(monkeypatch, status="documents", required=["d1", "d2"], unsigned=["d2"])
+
+    body = client.get("/api/v1/university/next").json()
+
+    assert body["document_id"] == "d2"
+    assert body["remaining"] == 1
+    assert body["total"] == 2
+
+
+def test_the_run_finishes_when_nothing_is_left(client, monkeypatch):
+    _run(monkeypatch, status="active", required=["d1"], unsigned=[])
+
+    body = client.get("/api/v1/university/next").json()
+
+    assert body["done"] is True
+    assert body["document_id"] == ""
+
+
+def test_the_run_is_empty_for_somebody_with_no_enrolment(client, monkeypatch):
+    _run(monkeypatch, status=None, required=[], unsigned=[])
+
+    assert client.get("/api/v1/university/next").json()["done"] is True
+
+
+def test_the_run_is_empty_for_somebody_still_awaiting_approval(client, monkeypatch):
+    """An applicant has nothing to sign — the coach has not decided yet."""
+    _run(monkeypatch, status="applied", required=["d1"], unsigned=["d1"])
+
+    body = client.get("/api/v1/university/next").json()
+
+    assert body["done"] is True
+    assert body["document_id"] == ""
