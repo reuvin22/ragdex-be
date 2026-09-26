@@ -15,15 +15,20 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 #: Where an invitation has got to.
 #:
 #: ``pending``  — invited, and the email has gone out. Nothing agreed yet.
-#: ``applied``  — they answered the coach's intake form. Waiting on the coach.
-#: ``active``   — the coach approved. This is the state that grants a coach
-#:               sight of a journal and a student sight of the documents.
-#: ``declined`` — refused, by either side.
+#: ``applied``   — they answered the coach's intake form. Waiting on the coach.
+#: ``documents`` — the coach approved, and there are documents to sign. They
+#:                 can read and sign them, and nothing else.
+#: ``active``    — every required document is signed. This is the only state
+#:                 that grants a coach sight of a journal, which is deliberate:
+#:                 the signature is what permits it, so it comes first.
+#: ``declined``  — refused, by either side.
 #:
 #: ``declined`` is kept rather than deleted, so a coach cannot re-invite
 #: somebody who said no simply by asking again — the row is still there and the
 #: write is an overwrite of a refusal, which is visible.
-EnrolmentStatus = Literal["pending", "applied", "active", "declined"]
+EnrolmentStatus = Literal[
+    "pending", "applied", "documents", "active", "declined"
+]
 
 MAX_NOTE = 300
 
@@ -167,6 +172,10 @@ class Intake(BaseModel):
     note: str = ""
     #: The intake form's id, when the coach has set one.
     document_id: str = ""
+    #: In the ``documents`` state: what is still unsigned, and how many there
+    #: were. The screen needs both to say "2 of 3 left" rather than just "2".
+    outstanding: int = 0
+    required_total: int = 0
 
 
 class Application(BaseModel):

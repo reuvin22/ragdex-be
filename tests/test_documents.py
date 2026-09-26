@@ -47,9 +47,33 @@ def _serve(monkeypatch, document: UniversityDocument) -> None:
     monkeypatch.setattr(
         "app.controllers.v1.university.documents_repo.get", lambda _id: document
     )
+    # Signing the last outstanding document enrols somebody. Not what these
+    # tests are about, and it would reach Firestore.
+    monkeypatch.setattr(
+        "app.controllers.v1.university.service.complete_if_signed",
+        lambda coach, student: False,
+    )
 
 
-def _enrolled(monkeypatch, active: bool) -> None:
+class _Row:
+    """Just enough of an enrolment for the read rule to judge."""
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+
+
+def _enrolled(monkeypatch, active: bool, *, status: str | None = None) -> None:
+    """Put an enrolment — or none — behind the caller.
+
+    The read rule reads the row rather than asking "is it active", because it
+    has to tell `active` from `documents` from `pending`. Tests say which.
+    """
+    settled = status or ("active" if active else "declined")
+    row = _Row(settled) if (active or status) else None
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.get", lambda coach, student: row
+    )
     monkeypatch.setattr(
         "app.controllers.v1.university.enrolment_repo.is_active",
         lambda coach, student: active,

@@ -150,6 +150,34 @@ def decide(coach_uid: str, student_uid: str, *, approve: bool) -> Enrolment | No
     return Enrolment(reference.get().to_dict() or {})
 
 
+def set_status(coach_uid: str, student_uid: str, status: EnrolmentStatus) -> None:
+    """Move a row to a state something else already decided on.
+
+    Deliberately unguarded, unlike ``apply`` and ``decide``. Those two answer
+    "is this transition allowed"; this one is used by the callers that have
+    already established that — approval choosing between ``documents`` and
+    ``active``, and the last signature completing an enrolment.
+    """
+    enrolments_collection().document(key_for(coach_uid, student_uid)).set(
+        {"status": status, "respondedAt": SERVER_TIMESTAMP}, merge=True
+    )
+
+
+def current_for_student(student_uid: str) -> Enrolment | None:
+    """The one enrolment that is going somewhere, whatever stage it is at.
+
+    ``coaches_of`` answers "who teaches me" and is active-only on purpose. This
+    answers "what am I in the middle of", which a student in the middle of
+    signing very much is.
+    """
+    for status in ("active", "documents", "applied", "pending"):
+        rows = _rows("studentUid", student_uid, status)
+        if rows:
+            return rows[0]
+
+    return None
+
+
 def respond(coach_uid: str, student_uid: str, *, accept: bool) -> Enrolment | None:
     """Answer an invitation. Only a pending one can be answered.
 
@@ -226,7 +254,7 @@ def open_for_student(student_uid: str) -> Enrolment | None:
     coach is more informative than an invitation not yet answered, because it
     tells the student they have already done their part.
     """
-    for status in ("applied", "pending"):
+    for status in ("documents", "applied", "pending"):
         rows = _rows("studentUid", student_uid, status)
         if rows:
             return rows[0]

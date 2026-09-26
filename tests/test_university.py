@@ -303,6 +303,10 @@ def test_a_non_intake_form_is_not_readable_before_enrolment(client, monkeypatch)
         "app.controllers.v1.university.enrolment_repo.is_active",
         lambda coach, student: False,
     )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.get",
+        lambda coach, student: None,
+    )
 
     assert client.get("/api/v1/university/documents/d1").status_code == 404
 
@@ -377,3 +381,142 @@ def test_approval_names_the_student_and_the_calling_coach(
 
     assert response.status_code == 200
     assert decided == [("trader-1", "student-9", True)]
+
+
+# ------------------------------------------- approval, signing, enrolment
+
+
+def test_accepting_directly_is_refused_when_the_coach_has_a_form(client, monkeypatch):
+    """The form must not be skippable.
+
+    The join screen only offers "accept" when there is no intake form, but the
+    endpoint is the boundary — a client that called it anyway would otherwise
+    go from invited to enrolled without answering anything or being approved.
+    """
+    from app.models.schemas.documents import UniversityDocument
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.coaches_of", lambda uid: []
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.intake_for",
+        lambda coach: UniversityDocument(
+            id="d1", coach_uid=coach, kind="form", title="Intake",
+            published=True, is_intake=True,
+        ),
+    )
+
+    def _never(*args, **kwargs):
+        raise AssertionError("the invitation was accepted despite a form")
+
+    monkeypatch.setattr("app.controllers.v1.university.enrolment_repo.respond", _never)
+
+    response = client.post("/api/v1/university/invitations/coach-7/accept")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "form_required"
+
+
+def _settling(monkeypatch, *, required: list[str], unsigned: list[str]):
+    """Record what the enrolment is moved to."""
+    moved: list[str] = []
+
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.required_ids", lambda coach: required
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.unsigned_ids",
+        lambda student, ids: unsigned,
+    )
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.set_status",
+        lambda coach, student, status: moved.append(status),
+    )
+    return moved
+
+
+def test_approval_with_documents_outstanding_does_not_enrol(
+    client, monkeypatch, coach_profile
+):
+    """Approved is not the same as enrolled when there is something to sign."""
+    moved = _settling(monkeypatch, required=["d1", "d2"], unsigned=["d1", "d2"])
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.decide",
+        lambda coach, student, *, approve: object(),
+    )
+
+    response = client.post("/api/v1/university/applications/student-9/approve")
+
+    assert response.status_code == 200
+    assert moved == ["documents"]
+    assert "2 documents to sign" in response.json()["message"]
+
+
+def test_approval_with_nothing_to_sign_enrols_immediately(
+    client, monkeypatch, coach_profile
+):
+    moved = _settling(monkeypatch, required=[], unsigned=[])
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.decide",
+        lambda coach, student, *, approve: object(),
+    )
+
+    client.post("/api/v1/university/applications/student-9/approve")
+
+    assert moved == ["active"]
+
+
+def _completion(monkeypatch, *, status: str, unsigned: list[str]) -> list[str]:
+    """Stand a student at a given point in the flow, and watch where they go.
+
+    Through monkeypatch rather than by assigning to the module: these patch
+    the repositories a service module holds, and an assignment would outlive
+    the test and quietly change every one after it.
+    """
+    moved: list[str] = []
+    row = type("Row", (), {"status": status})()
+
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.get", lambda coach, student: row
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.required_ids", lambda coach: ["d1", "d2"]
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.unsigned_ids",
+        lambda student, ids: unsigned,
+    )
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.set_status",
+        lambda coach, student, status_: moved.append(status_),
+    )
+    return moved
+
+
+def test_the_last_signature_enrols_them(monkeypatch):
+    """Signed, therefore approved — with no separate step to forget."""
+    from app.services.university import complete_if_signed
+
+    moved = _completion(monkeypatch, status="documents", unsigned=[])
+
+    assert complete_if_signed("coach-7", "student-9") is True
+    assert moved == ["active"]
+
+
+def test_signing_while_something_is_still_outstanding_does_not_enrol(monkeypatch):
+    from app.services.university import complete_if_signed
+
+    moved = _completion(monkeypatch, status="documents", unsigned=["d2"])
+
+    assert complete_if_signed("coach-7", "student-9") is False
+    assert moved == []
+
+
+def test_signing_cannot_enrol_somebody_who_was_never_approved(monkeypatch):
+    """A student still waiting on the coach cannot sign their way in."""
+    from app.services.university import complete_if_signed
+
+    moved = _completion(monkeypatch, status="applied", unsigned=[])
+
+    assert complete_if_signed("coach-7", "student-9") is False
+    assert moved == []

@@ -181,10 +181,21 @@ async def accept(user: WriteUser, uid: str = OtherUid) -> Message:
             code="already_enrolled",
         )
 
+    # A coach with an intake form asked a question, and this endpoint would
+    # otherwise be a way round it — straight from invited to enrolled, with
+    # neither the answers nor the coach's decision. The form is the route in.
+    if documents_repo.intake_for(uid) is not None:
+        raise AppError(
+            "Answer this coach's form first — they review it before you join.",
+            code="form_required",
+        )
+
     if enrolment_repo.respond(uid, user.uid, accept=True) is None:
         raise NotFoundError("That invitation is no longer waiting.")
 
-    return Message(message="You have joined the program.")
+    # Straight to signing if there is anything to sign. `respond` puts the row
+    # in `active`, which is only correct when nothing is outstanding.
+    return Message(message=service.settle(uid, user.uid))
 
 
 @router.post(
@@ -315,13 +326,15 @@ def _readable_document(uid: str, document_id: str) -> UniversityDocument:
     if not document.published:
         raise NotFoundError("No such document.")
 
-    if enrolment_repo.is_active(document.coach_uid, uid):
+    row = enrolment_repo.get(document.coach_uid, uid)
+
+    # `documents` as well as `active`: somebody part-way through signing has
+    # to be able to read what they are signing, and that is the entire state.
+    if row is not None and row.status in ("active", "documents"):
         return document
 
-    if document.is_intake:
-        row = enrolment_repo.get(document.coach_uid, uid)
-        if row is not None and row.status in ("pending", "applied"):
-            return document
+    if document.is_intake and row is not None and row.status in ("pending", "applied"):
+        return document
 
     raise NotFoundError("No such document.")
 
@@ -453,6 +466,11 @@ async def submit_document(
     # behind it to read.
     if document.is_intake:
         enrolment_repo.apply(document.coach_uid, user.uid)
+    else:
+        # Signing the last outstanding document is what enrols somebody. Done
+        # here rather than on a later read, so the moment it is true is the
+        # moment it takes effect.
+        service.complete_if_signed(document.coach_uid, user.uid)
 
     return submission
 
@@ -518,18 +536,7 @@ async def approve(user: WriteUser, uid: str = OtherUid) -> Message:
     if enrolment_repo.decide(user.uid, uid, approve=True) is None:
         raise NotFoundError("No application from them to decide.")
 
-    issued = len(
-        [d for d in documents_repo.for_coach(user.uid) if d.published and d.required]
-    )
-
-    return Message(
-        message=(
-            f"Approved. {issued} document{'s' if issued != 1 else ''} "
-            "are now waiting for them."
-            if issued
-            else "Approved."
-        )
-    )
+    return Message(message=service.settle(user.uid, uid, as_coach=True))
 
 
 @router.post(

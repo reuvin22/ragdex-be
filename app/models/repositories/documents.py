@@ -21,7 +21,7 @@ from typing import Any
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP, DocumentSnapshot, Query
 
 from app.core.errors import NotFoundError
-from app.db.firestore import documents_collection
+from app.db.firestore import documents_collection, get_client
 from app.models.schemas.documents import (
     MAX_ANSWER,
     SCALE_MAX,
@@ -418,3 +418,39 @@ def clear_intake(coach_uid: str, *, except_id: str) -> None:
     for doc in snapshot:
         if doc.id != except_id:
             doc.reference.set({"isIntake": False}, merge=True)
+
+
+def required_ids(coach_uid: str) -> list[str]:
+    """The documents a student has to complete before they are enrolled.
+
+    Published and required. A draft cannot block somebody, and an optional
+    document is optional — neither belongs in a gate.
+    """
+    return [
+        document.id
+        for document in published_for(coach_uid)
+        if document.required
+    ]
+
+
+def unsigned_ids(student_uid: str, document_ids: list[str]) -> list[str]:
+    """Which of these the student has not completed.
+
+    One batched read rather than a query per document: submissions are keyed
+    by uid, so the whole answer is a ``get_all`` over known paths.
+    """
+    if not document_ids:
+        return []
+
+    references = [
+        documents_collection().document(document_id).collection(_SUBMISSIONS).document(student_uid)
+        for document_id in document_ids
+    ]
+
+    signed = {
+        doc.reference.parent.parent.id
+        for doc in get_client().get_all(references)
+        if doc.exists
+    }
+
+    return [document_id for document_id in document_ids if document_id not in signed]

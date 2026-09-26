@@ -197,11 +197,13 @@ def documents_for(uid: str) -> list[UniversityDocument]:
             document.submission_count = len(documents_repo.submitted_uids(document.id))
         return own
 
-    coaches = enrolment_repo.coaches_of(uid)
-    if not coaches:
+    # `current_for_student`, not `coaches_of`: somebody in the middle of
+    # signing is not enrolled yet, and they are exactly who needs this list.
+    row = enrolment_repo.current_for_student(uid)
+    if row is None or row.status not in ("active", "documents"):
         return []
 
-    documents = documents_repo.published_for(coaches[0].coach_uid)
+    documents = documents_repo.published_for(row.coach_uid)
     for document in documents:
         existing = documents_repo.submission_for(document.id, uid)
         document.submitted_at = existing.submitted_at if existing else None
@@ -279,13 +281,20 @@ def intake_for(student_uid: str) -> Intake:
     Empty when nothing is open — which is the ordinary case for anybody who
     did not arrive from an email, and is not an error.
     """
-    row = enrolment_repo.open_for_student(student_uid)
+    row = enrolment_repo.current_for_student(student_uid)
     if row is None:
         return Intake()
 
     person = directory_repo.get_many([row.coach_uid]).get(row.coach_uid)
     programme = settings_repo.get_settings(row.coach_uid)
     form = documents_repo.intake_for(row.coach_uid)
+
+    required = documents_repo.required_ids(row.coach_uid)
+    outstanding = (
+        documents_repo.unsigned_ids(student_uid, required)
+        if row.status == "documents"
+        else []
+    )
 
     return Intake(
         status=row.status,
@@ -295,6 +304,8 @@ def intake_for(student_uid: str) -> Intake:
         university_name=programme.name,
         note=row.note,
         document_id=form.id if form is not None else "",
+        outstanding=len(outstanding),
+        required_total=len(required),
     )
 
 
@@ -325,3 +336,48 @@ def applications(coach_uid: str) -> list[Application]:
         )
         for row in rows
     ]
+
+
+def settle(coach_uid: str, student_uid: str, *, as_coach: bool = False) -> str:
+    """Put a just-approved enrolment in the right state, and say what happened.
+
+    There are two right answers and the difference matters to the person
+    reading the message. With required documents outstanding the enrolment is
+    not finished — it moves to ``documents`` and the student has something to
+    do. With none, approval *is* the end of it and they are enrolled.
+    """
+    outstanding = documents_repo.unsigned_ids(
+        student_uid, documents_repo.required_ids(coach_uid)
+    )
+
+    if not outstanding:
+        enrolment_repo.set_status(coach_uid, student_uid, "active")
+        return "Approved and enrolled." if as_coach else "You have joined the program."
+
+    enrolment_repo.set_status(coach_uid, student_uid, "documents")
+    count = len(outstanding)
+    noun = "document" if count == 1 else "documents"
+
+    return (
+        f"Approved. They have {count} {noun} to sign before they are enrolled."
+        if as_coach
+        else f"You are approved. Sign {count} {noun} to finish joining."
+    )
+
+
+def complete_if_signed(coach_uid: str, student_uid: str) -> bool:
+    """Enrol a student the moment nothing is left to sign.
+
+    Only from ``documents``: a submission from somebody already enrolled is an
+    ordinary form being answered, and one from somebody not yet approved
+    should not enrol them however much they sign.
+    """
+    row = enrolment_repo.get(coach_uid, student_uid)
+    if row is None or row.status != "documents":
+        return False
+
+    if documents_repo.unsigned_ids(student_uid, documents_repo.required_ids(coach_uid)):
+        return False
+
+    enrolment_repo.set_status(coach_uid, student_uid, "active")
+    return True
