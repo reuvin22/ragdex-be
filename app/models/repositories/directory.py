@@ -113,6 +113,24 @@ def search(term: str, *, exclude_uid: str) -> list[DirectoryEntry]:
     return found[:RESULT_LIMIT]
 
 
+def find_by_email(email: str) -> DirectoryEntry | None:
+    """The one account at an address, or None.
+
+    An equality match on the folded copy rather than a prefix range: this
+    answers "is this exact person here", which is what an invitation needs,
+    and it cannot be walked the way a prefix search could be.
+    """
+    needle = email.strip().lower()
+    if not needle:
+        return None
+
+    snapshot = _collection().where("emailLower", "==", needle).limit(1).get()
+    for doc in snapshot:
+        return _to_entry(doc.id, doc.to_dict() or {})
+
+    return None
+
+
 def get_many(uids: list[str]) -> dict[str, DirectoryEntry]:
     """Entries for a set of uids, for resolving a contact list into people."""
     if not uids:

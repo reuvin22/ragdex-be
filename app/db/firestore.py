@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 _PROFILES = "user-profiles"
 _JOURNAL = "journal"
 _BILLINGS = "billings"
+_ENROLMENTS = "enrolments"
+_POSTS = "posts"
 
 
 def init_firebase() -> None:
@@ -122,3 +124,24 @@ def conversation_doc(uid: str) -> Any:
     read on page load beats a query every time.
     """
     return profile_doc(uid).collection("coach").document("conversation")
+
+
+def enrolments_collection() -> Any:
+    """Who coaches whom.
+
+    Flat, keyed ``<coachUid>_<studentUid>``. Deterministic on purpose: it makes
+    a second invite to the same person an overwrite rather than a duplicate,
+    and it lets accept and decline address a row without the client holding an
+    id it was handed earlier.
+    """
+    return get_client().collection(_ENROLMENTS)
+
+
+def posts_collection() -> Any:
+    """The community feed.
+
+    The one collection in this service that is read across accounts by design.
+    Everything in a post is already published — a display name and a photo the
+    directory carries anyway — and nothing is copied here from the journal.
+    """
+    return get_client().collection(_POSTS)

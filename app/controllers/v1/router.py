@@ -12,11 +12,13 @@ from app.controllers.v1 import (
     auth,
     chat,
     coach,
+    community,
     imports,
     insights,
     market,
     profile,
     trades,
+    university,
     uploads,
 )
 
@@ -31,3 +33,5 @@ api_router.include_router(market.router)
 api_router.include_router(chat.router)
 api_router.include_router(uploads.router)
 api_router.include_router(imports.router)
+api_router.include_router(university.router)
+api_router.include_router(community.router)
