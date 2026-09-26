@@ -39,6 +39,7 @@ from app.models.schemas.documents import (
 from app.models.schemas.trade import TradePage
 from app.models.schemas.university import (
     ApplicationList,
+    Inbox,
     Intake,
     InvitationList,
     InviteRequest,
@@ -190,11 +191,15 @@ async def accept(user: WriteUser, uid: str = OtherUid) -> Message:
             code="form_required",
         )
 
-    if enrolment_repo.respond(uid, user.uid, accept=True) is None:
+    # Checked rather than written. `respond` used to be called here and it
+    # writes `active` — so for the moment between that write and `settle`
+    # correcting it, somebody with documents outstanding was fully enrolled
+    # and on the coach's roster. If `settle` then failed they stayed there.
+    # One write, made by whichever function knows the right answer.
+    row = enrolment_repo.get(uid, user.uid)
+    if row is None or row.status != "pending":
         raise NotFoundError("That invitation is no longer waiting.")
 
-    # Straight to signing if there is anything to sign. `respond` puts the row
-    # in `active`, which is only correct when nothing is outstanding.
     return Message(message=service.settle(uid, user.uid))
 
 
@@ -552,3 +557,17 @@ async def reject(user: WriteUser, uid: str = OtherUid) -> Message:
         raise NotFoundError("No application from them to decide.")
 
     return Message(message="Application turned down.")
+
+
+@router.get(
+    "/inbox",
+    response_model=Inbox,
+    summary="Everything the notification bell needs",
+)
+async def inbox(user: ReadUser) -> Inbox:
+    """Both sides at once, because one account can be both.
+
+    Answers empty halves rather than 403-ing a student who has no applications
+    — the bell asks the same question for everybody and renders what applies.
+    """
+    return service.inbox(user.uid)

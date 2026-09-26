@@ -247,6 +247,11 @@ def applications_for(coach_uid: str) -> list[Enrolment]:
     return _rows("coachUid", coach_uid, "applied")
 
 
+def signing_for(coach_uid: str) -> list[Enrolment]:
+    """Approved, and working through the documents."""
+    return _rows("coachUid", coach_uid, "documents")
+
+
 def open_for_student(student_uid: str) -> Enrolment | None:
     """Whatever is currently in front of this trader, if anything.
 

@@ -28,6 +28,7 @@ from app.models.schemas.documents import (
 from app.models.schemas.university import (
     Application,
     CoachSummary,
+    Inbox,
     Intake,
     Invitation,
     SentInvite,
@@ -174,6 +175,7 @@ def sent(coach_uid: str) -> list[SentInvite]:
             status=row.status,
             note=row.note,
             invited_at=row.invited_at,
+            responded_at=row.responded_at,
         )
         for row in rows
     ]
@@ -309,6 +311,37 @@ def intake_for(student_uid: str) -> Intake:
     )
 
 
+def _as_applications(
+    rows: list[enrolment_repo.Enrolment], coach_uid: str
+) -> list[Application]:
+    """Enrolment rows plus who the people are. Shared by the two queues."""
+    if not rows:
+        return []
+
+    people = directory_repo.get_many([row.student_uid for row in rows])
+    form = documents_repo.intake_for(coach_uid)
+
+    return [
+        Application(
+            student_uid=row.student_uid,
+            student_name=people[row.student_uid].display_name
+            if row.student_uid in people
+            else "",
+            student_email=people[row.student_uid].email
+            if row.student_uid in people
+            else "",
+            applied_at=row.applied_at,
+            document_id=form.id if form is not None else "",
+        )
+        for row in rows
+    ]
+
+
+def signing(coach_uid: str) -> list[Application]:
+    """Approved students still working through their documents."""
+    return _as_applications(enrolment_repo.signing_for(coach_uid), coach_uid)
+
+
 def applications(coach_uid: str) -> list[Application]:
     """Everyone waiting on this coach, with the form they answered.
 
@@ -381,3 +414,19 @@ def complete_if_signed(coach_uid: str, student_uid: str) -> bool:
 
     enrolment_repo.set_status(coach_uid, student_uid, "active")
     return True
+
+
+def inbox(uid: str) -> Inbox:
+    """One answer for the notification bell.
+
+    Both halves are fetched for everybody rather than branching on account
+    type: a coach who is also somebody's student has both, and asking the
+    profile first would be a read to save two queries that answer empty.
+    """
+    return Inbox(
+        invitations=pending(uid),
+        intake=intake_for(uid),
+        applications=applications(uid),
+        signing=signing(uid),
+        declined=[invite for invite in sent(uid) if invite.status == "declined"],
+    )

@@ -72,6 +72,9 @@ class SentInvite(BaseModel):
     status: EnrolmentStatus
     note: str = ""
     invited_at: datetime | None = None
+    #: When they answered, for anything that needs to know how fresh a
+    #: refusal is — a decline from March is not news.
+    responded_at: datetime | None = None
 
 
 class SentInviteList(BaseModel):
@@ -191,3 +194,29 @@ class Application(BaseModel):
 
 class ApplicationList(BaseModel):
     applications: list[Application]
+
+
+class Inbox(BaseModel):
+    """Everything the notification bell needs about coaching, in one call.
+
+    One endpoint rather than three, because the bell is on every screen in the
+    product and each separate hook it grew was a round trip on every page
+    load. The four fields are unrelated to each other and that is fine — they
+    are related by *who is asking*, which is the only thing they have to share.
+
+    Both sides are here because both happen to one account: a coach can be
+    somebody else's student, and the bell should not have to guess which.
+    """
+
+    #: Student side — invitations waiting on this account, and how far its own
+    #: joining has got.
+    invitations: list[Invitation] = Field(default_factory=list)
+    intake: Intake = Field(default_factory=lambda: Intake())
+
+    #: Coach side — who has answered, who is still signing, who has refused.
+    applications: list[Application] = Field(default_factory=list)
+    #: Approved, but not enrolled until their documents are signed. They are
+    #: deliberately not on the roster yet, so without this they would seem to
+    #: have disappeared between approval and joining.
+    signing: list[Application] = Field(default_factory=list)
+    declined: list[SentInvite] = Field(default_factory=list)
