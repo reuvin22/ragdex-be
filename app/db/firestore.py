@@ -32,6 +32,7 @@ _ENROLMENTS = "enrolments"
 _UNIVERSITIES = "universities"
 _UNIVERSITY_DOCS = "university-docs"
 _POSTS = "posts"
+_BROKERS = "broker-connections"
 
 
 def init_firebase() -> None:
@@ -107,6 +108,17 @@ def billing_doc(uid: str) -> Any:
 def billings_collection() -> Any:
     """Every billing record. For maintenance scripts; routes address one uid."""
     return get_client().collection(_BILLINGS)
+
+
+def broker_doc(uid: str) -> Any:
+    """One trader's broker connection. A document per account, keyed by uid.
+
+    Its own collection rather than a field on the profile: it holds a live
+    credential, it is read on a different schedule from everything else, and
+    keeping it apart means a rule or an export that covers profiles does not
+    silently cover access tokens too.
+    """
+    return get_client().collection(_BROKERS).document(uid)
 
 
 def insights_collection(uid: str) -> Any:

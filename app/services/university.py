@@ -413,22 +413,37 @@ def settle(coach_uid: str, student_uid: str, *, as_coach: bool = False) -> str:
     )
 
 
-def complete_if_signed(coach_uid: str, student_uid: str) -> bool:
-    """Enrol a student the moment nothing is left to sign.
+def finalise(student_uid: str) -> str:
+    """Submit the completed documents, and join.
 
-    Only from ``documents``: a submission from somebody already enrolled is an
-    ordinary form being answered, and one from somebody not yet approved
-    should not enrol them however much they sign.
+    The one place an enrolment becomes active from the student's side, and it
+    happens because they pressed a button that says so. Signing the last
+    document used to do this on their behalf, which meant somebody could be
+    enrolled by a submission they made without realising it was the last one —
+    and, worse, by submissions left over from a previous enrolment.
+
+    Refuses while anything is outstanding. The button is only offered when
+    nothing is, so reaching this with work left is a stale page or a direct
+    call, and neither should enrol anybody.
     """
-    row = enrolment_repo.get(coach_uid, student_uid)
+    row = enrolment_repo.current_for_student(student_uid)
     if row is None or row.status != "documents":
-        return False
+        raise AppError("There is nothing to submit.", code="nothing_to_submit")
 
-    if documents_repo.unsigned_ids(student_uid, documents_repo.required_ids(coach_uid)):
-        return False
+    outstanding = documents_repo.unsigned_ids(
+        student_uid, documents_repo.required_ids(row.coach_uid)
+    )
 
-    enrolment_repo.set_status(coach_uid, student_uid, "active")
-    return True
+    if outstanding:
+        count = len(outstanding)
+        raise AppError(
+            f"{count} {'document is' if count == 1 else 'documents are'} "
+            "still to complete.",
+            code="incomplete",
+        )
+
+    enrolment_repo.set_status(row.coach_uid, student_uid, "active")
+    return "You are enrolled."
 
 
 def inbox(uid: str) -> Inbox:
@@ -458,11 +473,15 @@ def next_document(student_uid: str) -> NextDocument:
     if row is None or row.status not in ("documents", "active"):
         return NextDocument(done=True)
 
+    if row.status == "active":
+        return NextDocument(done=True, enrolled=True)
+
     required = documents_repo.required_ids(row.coach_uid)
     unsigned = documents_repo.unsigned_ids(student_uid, required)
 
     if not unsigned:
-        return NextDocument(done=True, total=len(required))
+        # Finished, but not joined. That is the student's own call to make.
+        return NextDocument(done=True, ready_to_submit=True, total=len(required))
 
     return NextDocument(
         document_id=unsigned[0],

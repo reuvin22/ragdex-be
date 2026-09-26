@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from app.controllers.v1 import (
     auth,
+    brokers,
     chat,
     coach,
     community,
@@ -33,5 +34,6 @@ api_router.include_router(market.router)
 api_router.include_router(chat.router)
 api_router.include_router(uploads.router)
 api_router.include_router(imports.router)
+api_router.include_router(brokers.router)
 api_router.include_router(university.router)
 api_router.include_router(community.router)

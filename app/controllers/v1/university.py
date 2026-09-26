@@ -481,13 +481,12 @@ async def submit_document(
     # Answering the intake form *is* the application. Done after the answers
     # are stored, so a coach never sees a pending application with nothing
     # behind it to read.
+    # Answering the intake form *is* the application. Nothing else here
+    # changes an enrolment: finishing the documents and joining the program
+    # are two acts, and the second is the student's to make — see
+    # POST /university/submit.
     if document.is_intake:
         enrolment_repo.apply(document.coach_uid, user.uid)
-    else:
-        # Signing the last outstanding document is what enrols somebody. Done
-        # here rather than on a later read, so the moment it is true is the
-        # moment it takes effect.
-        service.complete_if_signed(document.coach_uid, user.uid)
 
     return submission
 
@@ -599,3 +598,25 @@ async def next_document(user: ReadUser) -> NextDocument:
     resumes rather than starting again.
     """
     return service.next_document(user.uid)
+
+
+@router.post(
+    "/submit",
+    response_model=Message,
+    summary="Submit your completed documents and join",
+    responses={
+        400: {"model": ErrorResponse, "description": "Something is still outstanding"},
+    },
+)
+async def submit_documents(user: WriteUser) -> Message:
+    """The student's own act of joining.
+
+    Signing the last document used to do this for them, which meant an
+    enrolment could complete on a submission somebody made without realising
+    it was the last — or on submissions left over from a previous enrolment,
+    before they had agreed to anything this time round.
+
+    Takes nothing. What is outstanding is worked out from the session and the
+    program, so there is no body here that could claim to have finished.
+    """
+    return Message(message=service.finalise(user.uid))

@@ -173,6 +173,23 @@ class Settings(BaseSettings):
     #: The largest image accepted, before encryption or encoding overhead.
     max_upload_bytes: int = 10 * 1024 * 1024
 
+    # -- Tradovate ---------------------------------------------------------
+    # Our API application's own credentials, issued by Tradovate when the
+    # integration is registered. They identify RagDex, not the trader — the
+    # trader's own username and password are asked for at connect time, used
+    # once, and never stored.
+    #
+    # `sec` is a real secret: with a cid it can request tokens in this
+    # application's name. It belongs here and nowhere near a VITE_ variable.
+    tradovate_cid: str = ""
+    tradovate_sec: SecretStr | None = None
+    #: Sent with every auth request so Tradovate can attribute traffic.
+    tradovate_app_id: str = "RagDex"
+    tradovate_app_version: str = "1.0"
+    #: Auth can be slow when Tradovate applies a penalty delay; see the
+    #: p-ticket handling in services/tradovate.py.
+    tradovate_timeout_seconds: float = 20.0
+
     # -- Limits ------------------------------------------------------------
     # A journal request is text. Anything larger is a mistake or an attack.
     max_request_bytes: int = 256 * 1024
@@ -216,6 +233,18 @@ class Settings(BaseSettings):
             and self.r2_secret_access_key
             and self.r2_bucket
         )
+
+    @property
+    def tradovate_configured(self) -> bool:
+        """Whether this deployment can talk to Tradovate at all.
+
+        Both halves, because the token request carries both: the cid names the
+        application and the secret proves it. Without them Tradovate rejects
+        the request as an unknown app, which reaches the trader looking like
+        their own password was wrong — so the route checks this first and says
+        plainly that the integration is not configured here.
+        """
+        return bool(self.tradovate_cid and self.tradovate_sec)
 
     def _service_account_source(self) -> tuple[str, str] | None:
         """Where the credential is coming from, as (description, raw JSON).

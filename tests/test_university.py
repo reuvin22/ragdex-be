@@ -524,6 +524,110 @@ def test_approval_with_nothing_to_sign_enrols_immediately(
     assert moved == ["active"]
 
 
+def _finalising(monkeypatch, *, status: str | None, unsigned: list[str]) -> list[str]:
+    """Stand a student at a point in the flow, and watch where they go."""
+    moved: list[str] = []
+    row = (
+        None
+        if status is None
+        else type("Row", (), {"status": status, "coach_uid": "c1"})()
+    )
+
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.current_for_student", lambda uid: row
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.required_ids", lambda coach: ["d1", "d2"]
+    )
+    monkeypatch.setattr(
+        "app.services.university.documents_repo.unsigned_ids",
+        lambda student, ids: unsigned,
+    )
+    monkeypatch.setattr(
+        "app.services.university.enrolment_repo.set_status",
+        lambda coach, student, status_: moved.append(status_),
+    )
+    return moved
+
+
+def test_submitting_enrols_when_everything_is_done(client, monkeypatch):
+    """The student's own act of joining, and the only thing that enrols them."""
+    moved = _finalising(monkeypatch, status="documents", unsigned=[])
+
+    response = client.post("/api/v1/university/submit")
+
+    assert response.status_code == 200
+    assert moved == ["active"]
+
+
+def test_submitting_is_refused_while_anything_is_outstanding(client, monkeypatch):
+    moved = _finalising(monkeypatch, status="documents", unsigned=["d2"])
+
+    response = client.post("/api/v1/university/submit")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "incomplete"
+    assert moved == []
+
+
+def test_submitting_cannot_enrol_somebody_awaiting_approval(client, monkeypatch):
+    """An applicant has not been approved, however much they have signed."""
+    moved = _finalising(monkeypatch, status="applied", unsigned=[])
+
+    assert client.post("/api/v1/university/submit").status_code == 400
+    assert moved == []
+
+
+def test_submitting_with_no_enrolment_is_refused(client, monkeypatch):
+    moved = _finalising(monkeypatch, status=None, unsigned=[])
+
+    assert client.post("/api/v1/university/submit").status_code == 400
+    assert moved == []
+
+
+def test_signing_a_document_no_longer_enrols_anybody(client, monkeypatch):
+    """The complaint that prompted this.
+
+    Completing the documents and joining the program are two acts now. A
+    submission — including the last one — changes nothing about the enrolment.
+    """
+    from app.models.schemas.documents import Submission, UniversityDocument
+
+    document = UniversityDocument(
+        id="d1", coach_uid="coach-7", kind="agreement", title="Terms", published=True
+    )
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.get", lambda _id: document
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.get",
+        lambda coach, student: type("Row", (), {"status": "documents"})(),
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.submit",
+        lambda doc, uid, *, signed_name, answers: Submission(
+            document_id=doc.id, student_uid=uid, signed_name=signed_name
+        ),
+    )
+
+    def _never(*args, **kwargs):
+        raise AssertionError("submitting a document changed the enrolment")
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.set_status", _never
+    )
+
+    response = client.post(
+        "/api/v1/university/documents/d1/submit", json={"signed_name": "Alex"}
+    )
+
+    assert response.status_code == 201
+
+
+# ------------------------------------------------------- the joining flow
+
+
 def _completion(monkeypatch, *, status: str, unsigned: list[str]) -> list[str]:
     """Stand a student at a given point in the flow, and watch where they go.
 
@@ -549,38 +653,6 @@ def _completion(monkeypatch, *, status: str, unsigned: list[str]) -> list[str]:
         lambda coach, student, status_: moved.append(status_),
     )
     return moved
-
-
-def test_the_last_signature_enrols_them(monkeypatch):
-    """Signed, therefore approved — with no separate step to forget."""
-    from app.services.university import complete_if_signed
-
-    moved = _completion(monkeypatch, status="documents", unsigned=[])
-
-    assert complete_if_signed("coach-7", "student-9") is True
-    assert moved == ["active"]
-
-
-def test_signing_while_something_is_still_outstanding_does_not_enrol(monkeypatch):
-    from app.services.university import complete_if_signed
-
-    moved = _completion(monkeypatch, status="documents", unsigned=["d2"])
-
-    assert complete_if_signed("coach-7", "student-9") is False
-    assert moved == []
-
-
-def test_signing_cannot_enrol_somebody_who_was_never_approved(monkeypatch):
-    """A student still waiting on the coach cannot sign their way in."""
-    from app.services.university import complete_if_signed
-
-    moved = _completion(monkeypatch, status="applied", unsigned=[])
-
-    assert complete_if_signed("coach-7", "student-9") is False
-    assert moved == []
-
-
-# --------------------------------------------------------- the signing run
 
 
 def _run(monkeypatch, *, status: str | None, required: list[str], unsigned: list[str]):

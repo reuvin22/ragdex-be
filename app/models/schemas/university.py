@@ -253,6 +253,13 @@ class NextDocument(BaseModel):
     remaining: int = 0
     #: How many there were to begin with, for "2 of 3".
     total: int = 0
-    #: True when the sequence is finished — which for a student in the
-    #: ``documents`` state means they have just been enrolled.
+    #: True when there is nothing further to open.
     done: bool = False
+    #: Everything is complete and waiting on the student to submit it.
+    #:
+    #: Separate from ``done`` because finishing the documents and joining the
+    #: program are two acts now, and only the second is the student's decision
+    #: to make. Nothing enrols anybody without this being pressed.
+    ready_to_submit: bool = False
+    #: Already enrolled; the run has nothing to do.
+    enrolled: bool = False

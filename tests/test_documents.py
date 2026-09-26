@@ -47,12 +47,6 @@ def _serve(monkeypatch, document: UniversityDocument) -> None:
     monkeypatch.setattr(
         "app.controllers.v1.university.documents_repo.get", lambda _id: document
     )
-    # Signing the last outstanding document enrols somebody. Not what these
-    # tests are about, and it would reach Firestore.
-    monkeypatch.setattr(
-        "app.controllers.v1.university.service.complete_if_signed",
-        lambda coach, student: False,
-    )
 
 
 class _Row:
