@@ -647,3 +647,37 @@ def test_the_run_is_empty_for_somebody_still_awaiting_approval(client, monkeypat
 
     assert body["done"] is True
     assert body["document_id"] == ""
+
+
+# ------------------------------------------------- reading a status back
+
+
+def test_every_status_survives_being_read_back():
+    """The one that bit.
+
+    `Enrolment` validated the stored status against a hand-written list, and
+    that list went stale: `applied` and `documents` were added to the type and
+    not to it, so a row in either state came back as `pending`. Firestore was
+    right and every reader was wrong — an approved student could not reach the
+    documents they were being asked to sign, and their coach saw them counted
+    as not having answered.
+
+    Written against the type rather than a list of its own, so this test
+    cannot go stale the way the code it guards did.
+    """
+    from typing import get_args
+
+    from app.models.repositories.enrolment import Enrolment
+    from app.models.schemas.university import EnrolmentStatus
+
+    for status in get_args(EnrolmentStatus):
+        row = Enrolment({"coachUid": "c", "studentUid": "s", "status": status})
+        assert row.status == status, f"{status} was read back as {row.status}"
+
+
+def test_an_unknown_status_reads_as_pending():
+    """Unrecognised is the safest state, not the most permissive one."""
+    from app.models.repositories.enrolment import Enrolment
+
+    assert Enrolment({"status": "nonsense"}).status == "pending"
+    assert Enrolment({}).status == "pending"

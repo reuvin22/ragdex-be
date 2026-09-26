@@ -15,7 +15,7 @@ uid goes through it.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast, get_args
 
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
 
@@ -44,9 +44,20 @@ class Enrolment:
     def __init__(self, data: dict[str, Any]) -> None:
         self.coach_uid = str(data.get("coachUid", ""))
         self.student_uid = str(data.get("studentUid", ""))
-        raw = data.get("status")
+        # Read off EnrolmentStatus rather than a second hand-kept list — the
+        # same discipline billing.py uses for PlanId, and for the same reason.
+        #
+        # This was a list, and it went stale: `applied` and `documents` were
+        # added to the Literal and not here, so a row in either state was read
+        # back as `pending`. Firestore had it right and every reader saw the
+        # wrong thing — a student who had been approved could not reach the
+        # documents they were being asked to sign, and their coach saw them
+        # counted as not having answered. Adding a state is now one edit.
+        stored = str(data.get("status", ""))
         self.status: EnrolmentStatus = (
-            raw if raw in ("pending", "active", "declined") else "pending"
+            cast(EnrolmentStatus, stored)
+            if stored in get_args(EnrolmentStatus)
+            else "pending"
         )
         self.note = str(data.get("note", ""))
         self.invited_at = _to_datetime(data.get("invitedAt"))
