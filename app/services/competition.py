@@ -17,7 +17,10 @@ last month's score.
 
 from __future__ import annotations
 
-from app.core.errors import AppError
+from datetime import UTC, datetime
+from typing import Any
+
+from app.core.config import Settings
 from app.models.repositories import arena as arena_repo
 from app.models.repositories import battles as battles_repo
 from app.models.repositories import directory as directory_repo
@@ -31,6 +34,7 @@ from app.models.schemas.competition import (
     DIVISIONS,
     Battle,
     BattleOpponent,
+    FillIn,
     Leaderboard,
     MyArena,
     Standing,
@@ -39,6 +43,7 @@ from app.models.schemas.competition import (
     UniversityBoard,
     UniversityStanding,
 )
+from app.services import market
 from app.services.scoring import rank_for, score
 
 #: How much of a journal a score is computed from.
@@ -75,16 +80,20 @@ def refresh(uid: str) -> tuple[int, dict[str, int], str]:
 def mine(uid: str) -> MyArena:
     """The caller's own standing, rescored on the way past."""
     points, breakdown, university = refresh(uid)
-    entered = arena_repo.get(uid) is not None
+    entrant = arena_repo.get(uid)
 
     name = ""
     if university:
         name = settings_repo.get_settings(university).name
 
     return MyArena(
-        entered=entered,
+        played=entrant is not None,
+        matches=entrant.matches if entrant else 0,
+        wins=entrant.wins if entrant else 0,
         rank=rank_for(points),
-        position=arena_repo.position_of(uid, points) if entered else None,
+        # Null until they have played. A position on a board they are not on
+        # would be a number with nothing behind it.
+        position=arena_repo.position_of(uid, points) if entrant else None,
         breakdown=breakdown,
         university_name=name,
     )
@@ -247,7 +256,17 @@ def battle(uid: str) -> Battle:
     finishes a match is somebody looking at it.
     """
     if battles_repo.waiting(uid):
-        return Battle(state="searching")
+        # Re-attempt on every poll. The widening rule is time-based, so the
+        # search has to be retried for it ever to take effect — and a player
+        # who queued first would otherwise wait for somebody else to press
+        # the button rather than being picked up by their own polling.
+        points = arena_repo.get(uid)
+        tier = rank_for(points.points if points else 0).tier
+        made = battles_repo.find_or_queue(
+            uid, points.points if points else 0, symbol=BATTLE_SYMBOL, tier=tier
+        )
+        if made is None:
+            return Battle(state="searching")
 
     match = battles_repo.current(uid)
     if match is None:
@@ -271,6 +290,7 @@ def battle(uid: str) -> Battle:
         return Battle(
             state="running",
             id=match.id,
+            symbol=match.symbol,
             opponent=opponent,
             starts_at=match.starts_at,
             ends_at=match.ends_at,
@@ -287,6 +307,7 @@ def battle(uid: str) -> Battle:
         return Battle(
             state="reporting",
             id=match.id,
+            symbol=match.symbol,
             opponent=opponent,
             starts_at=match.starts_at,
             ends_at=match.ends_at,
@@ -297,6 +318,7 @@ def battle(uid: str) -> Battle:
     return Battle(
         state="finished",
         id=match.id,
+        symbol=match.symbol,
         opponent=opponent,
         starts_at=match.starts_at,
         ends_at=match.ends_at,
@@ -315,13 +337,6 @@ def _try_settle(uid: str, match: battles_repo.Match) -> None:
     can only be decided once both have been back or the clock has run out on
     one of them.
     """
-    if not match.reported(uid):
-        battles_repo.report(match.id, uid, _window_return(uid, match))
-        refreshed = battles_repo.current(uid)
-        if refreshed is None:
-            return
-        match = refreshed
-
     other = match.other(uid)
 
     if not match.reported(other) and not battles_repo.past_grace(match):
@@ -340,9 +355,21 @@ def _try_settle(uid: str, match: battles_repo.Match) -> None:
         winner = ""
 
     if winner == "":
-        # A genuine tie moves nobody. Paying both sides for a draw would make
-        # a draw the most profitable outcome in the game.
+        # A genuine tie moves nobody's points. It still counts as a match
+        # played, though — a drawn game is a game, and the board is a list of
+        # people who have played one.
         battles_repo.settle(match.id, winner="", deltas={uid: 0, other: 0})
+
+        for player in (uid, other):
+            entrant = arena_repo.get(player)
+            if entrant is None:
+                points, _, university = refresh(player)
+            else:
+                points, university = entrant.points, entrant.university_uid
+
+            arena_repo.register(
+                player, points=points, university_uid=university, won=False
+            )
         return
 
     loser = other if winner == uid else uid
@@ -356,31 +383,141 @@ def _try_settle(uid: str, match: battles_repo.Match) -> None:
         match.id, winner=winner, deltas={winner: win_gain, loser: lose_cost}
     )
 
+    # `register` rather than `record`: this is what creates the row, so a
+    # first match is what makes somebody rankable at all.
     for player, delta in ((winner, win_gain), (loser, lose_cost)):
         entrant = arena_repo.get(player)
-        if entrant is not None:
-            arena_repo.record(
-                player,
-                points=max(0, entrant.points + delta),
-                university_uid=entrant.university_uid,
-            )
+        base = entrant.points if entrant is not None else 0
+        university = entrant.university_uid if entrant is not None else ""
+
+        if entrant is None:
+            # Never played: their standing starts from what their journal has
+            # earned them, plus the result of this match.
+            base, _, university = refresh(player)
+
+        arena_repo.register(
+            player,
+            points=max(0, base + delta),
+            university_uid=university,
+            won=player == winner,
+        )
 
 
 def search(uid: str) -> Battle:
-    """Look for an opponent, or wait to be found."""
-    entrant = arena_repo.get(uid)
-    if entrant is None:
-        raise AppError(
-            "Enter the ladder before searching for a match.", code="not_entered"
-        )
+    """Look for an opponent in the caller's bracket, or wait to be found.
 
+    There is no joining step any more. Searching is the entry: a player
+    appears on the leaderboard once a match of theirs has settled, so the
+    board is a ranking of people who have played rather than of everybody who
+    opened the page.
+
+    The bracket comes from the caller's points, which are computed from their
+    own journal — so somebody who has never played still has a tier to be
+    matched inside.
+    """
     existing = battles_repo.current(uid)
     if existing is not None and not existing.settled:
         return battle(uid)
 
-    battles_repo.find_or_queue(uid, entrant.points)
+    points, _, _ = refresh(uid)
+    battles_repo.find_or_queue(
+        uid, points, symbol=BATTLE_SYMBOL, tier=rank_for(points).tier
+    )
     return battle(uid)
 
 
 def cancel_search(uid: str) -> None:
     battles_repo.leave_queue(uid)
+
+
+# ------------------------------------------------- pricing what was traded
+
+#: What both sides trade. One liquid instrument, chosen here rather than by
+#: either player — a match where you pick your own symbol is not a match.
+BATTLE_SYMBOL = "SPY"
+
+#: Notional every player is given. The same for both, so comparing returns
+#: compares trading rather than stakes.
+BATTLE_STAKE = 10_000.0
+
+
+def _bar_at(candles: list[Any], at: datetime) -> Any | None:
+    """The bar a moment falls in, or the last one before it."""
+    found = None
+    stamp = at.timestamp() * 1000
+
+    for bar in candles:
+        if bar.time > stamp:
+            break
+        found = bar
+
+    return found or (candles[0] if candles else None)
+
+
+async def price_fills(
+    match: battles_repo.Match, fills: list[FillIn], settings: Settings
+) -> float:
+    """Walk a player's orders against real bars and return their percentage.
+
+    **This is the verification.** The browser reports a time, a side and a
+    size; every price comes from the market data this service fetched, so a
+    client cannot report a fill at a number that suits it. A fill outside the
+    match window is dropped rather than the submission being refused — a
+    clock a second out should not void somebody's match.
+    """
+    if match.starts_at is None or match.ends_at is None:
+        return 0.0
+
+    candles, _ = await market.candles(
+        ticker=match.symbol or BATTLE_SYMBOL,
+        from_ms=int(match.starts_at.timestamp() * 1000),
+        to_ms=int(match.ends_at.timestamp() * 1000),
+        settings=settings,
+    )
+
+    if not candles:
+        return 0.0
+
+    inside = sorted(
+        (
+            fill
+            for fill in fills
+            if match.starts_at
+            <= datetime.fromtimestamp(fill.at / 1000, tz=UTC)
+            <= match.ends_at
+        ),
+        key=lambda fill: fill.at,
+    )
+
+    size = 0.0
+    average = 0.0
+    realised = 0.0
+
+    for fill in inside:
+        bar = _bar_at(candles, datetime.fromtimestamp(fill.at / 1000, tz=UTC))
+        if bar is None:
+            continue
+
+        price = float(bar.close)
+        signed = fill.size if fill.side == "buy" else -fill.size
+
+        if size == 0 or (signed > 0) == (size > 0):
+            average = (average * abs(size) + price * abs(signed)) / (
+                abs(size) + abs(signed)
+            )
+            size += signed
+            continue
+
+        closing = min(abs(signed), abs(size))
+        realised += (price - average) * closing * (1 if size > 0 else -1)
+
+        remaining = abs(signed) - closing
+        size += signed
+        average = price if remaining > 0 else (0.0 if size == 0 else average)
+
+    # Anything still open is marked out at the last bar. A position nobody
+    # closed before the bell is a position that closed at the bell.
+    if size != 0:
+        realised += (float(candles[-1].close) - average) * size
+
+    return round(realised / BATTLE_STAKE * 100, 4)

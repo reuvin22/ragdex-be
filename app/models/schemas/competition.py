@@ -143,8 +143,11 @@ class MyArena(BaseModel):
     mistake that endpoint already corrected.
     """
 
-    #: False until they enter. Nobody is ranked without choosing to be.
-    entered: bool = False
+    #: False until a match of theirs has settled. There is no joining step —
+    #: playing is what puts somebody on the board.
+    played: bool = False
+    matches: int = 0
+    wins: int = 0
     rank: Rank = Field(default_factory=Rank)
     #: Where they sit on the global board, or null when unranked.
     position: int | None = None
@@ -201,6 +204,9 @@ class Battle(BaseModel):
 
     state: BattleState = "idle"
     id: str = ""
+    #: What both sides are trading. Chosen by the server when the match is
+    #: made, so neither player picks the instrument they are judged on.
+    symbol: str = ""
     opponent: BattleOpponent | None = None
     starts_at: datetime | None = None
     ends_at: datetime | None = None
@@ -219,3 +225,25 @@ class Battle(BaseModel):
 
 class BattleSearch(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class FillIn(BaseModel):
+    """One order, as the browser records it.
+
+    A time, a side and a size — never a price. The price comes from the bar
+    the fill lands in, priced by this service against the same market data
+    the chart drew, so a client cannot report a fill at a number it liked.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    at: int = Field(ge=0, description="Epoch milliseconds.")
+    side: Literal["buy", "sell"]
+    size: float = Field(gt=0, le=100)
+
+
+class FillsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Capped. A match is ten minutes; a thousand orders in it is a script.
+    fills: list[FillIn] = Field(default_factory=list, max_length=200)

@@ -13,21 +13,24 @@ Two invariants carry the rest:
 - **Nothing here scores anybody but the caller.** Points are computed from
   your own journal when you open the arena and stored; the boards read stored
   numbers. No request reads a second account's trades.
-- **Nobody is ranked without entering.** The collection holds entrants only,
-  and leaving deletes the row rather than hiding it.
+- **Nobody is ranked until they have played.** There is no joining step: the
+  board's collection holds one row per player, written when a match settles,
+  so the leaderboard is a ranking of people who have competed rather than of
+  everybody who opened the page.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Path, Response, status
 
-from app.controllers.deps import ReadUser, StandardRateLimit, WriteUser
-from app.core.errors import AppError
-from app.models.repositories import arena as arena_repo
+from app.controllers.deps import AppSettings, ReadUser, StandardRateLimit, WriteUser
+from app.core.errors import AppError, NotFoundError
+from app.models.repositories import battles as battles_repo
 from app.models.repositories import tournaments as tournaments_repo
 from app.models.schemas.common import ErrorResponse, Message
 from app.models.schemas.competition import (
     Battle,
+    FillsIn,
     Leaderboard,
     MyArena,
     TournamentList,
@@ -58,30 +61,6 @@ async def me(user: ReadUser) -> MyArena:
     else's.
     """
     return service.mine(user.uid)
-
-
-@router.post(
-    "/enter",
-    response_model=Message,
-    status_code=status.HTTP_201_CREATED,
-    summary="Enter the ladder",
-)
-async def enter(user: WriteUser) -> Message:
-    """Nobody is ranked without this. Idempotent."""
-    arena_repo.enter(user.uid)
-    service.refresh(user.uid)
-    return Message(message="You are on the ladder.")
-
-
-@router.delete(
-    "/enter",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Leave the ladder",
-)
-async def leave(user: WriteUser) -> Response:
-    """Off the board immediately — the row is deleted, not flagged."""
-    arena_repo.leave(user.uid)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/leaderboard", response_model=Leaderboard, summary="The ladder")
@@ -189,3 +168,31 @@ async def search(user: WriteUser) -> Battle:
 async def cancel_search(user: WriteUser) -> Response:
     service.cancel_search(user.uid)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/battle/fills",
+    response_model=Battle,
+    summary="Report what you traded in the match",
+    responses={404: {"model": ErrorResponse, "description": "No match to report"}},
+)
+async def report_fills(
+    user: WriteUser, payload: FillsIn, settings: AppSettings
+) -> Battle:
+    """The browser sends times, sides and sizes. This service sets the prices.
+
+    That division is the whole reason a paper-traded match can be ranked: a
+    client that could name its own fill prices could name its own result, and
+    every price here comes from the same market data the chart drew.
+
+    Only the caller's own side is written. The opponent's figure is whatever
+    they reported for themselves, so neither request touches the other's.
+    """
+    match = battles_repo.current(user.uid)
+    if match is None or match.settled:
+        raise NotFoundError("No match to report.")
+
+    percent = await service.price_fills(match, payload.fills, settings)
+    battles_repo.report(match.id, user.uid, percent)
+
+    return service.battle(user.uid)

@@ -1,10 +1,13 @@
 """Who is in the arena, and how many points they hold.
 
-One document per entrant, keyed by uid, and **only entrants have one**.
-Leaving deletes the row rather than flagging it, which buys the thing this
-collection is for: the leaderboard is ``order_by(points)`` with no filter, so
-Firestore's automatic single-field index serves it and there is no composite
-index to deploy before the board works.
+One document per player, keyed by uid, and **a row means they have played a
+match**. There is no joining step: the row is written when a match settles,
+so the collection *is* the set of people eligible for the board.
+
+That is what keeps the leaderboard a single ``order_by(points)`` with no
+filter beside it. "Ranked players only" would otherwise be an equality filter
+next to an ordering, which is the one shape that needs a composite index
+deployed before the board works at all.
 
 **No journal is read across accounts.** A trader's points are computed from
 their own journal, by them, when they open the arena — and stored here. The
@@ -18,7 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Query
+from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Increment, Query
 
 from app.db.firestore import arena_collection
 
@@ -34,6 +37,9 @@ class Entrant:
     def __init__(self, uid: str, data: dict[str, Any]) -> None:
         self.uid = uid
         self.points = max(0, int(data.get("points", 0) or 0))
+        #: Matches played. A row only exists once this is at least one.
+        self.matches = max(0, int(data.get("matches", 0) or 0))
+        self.wins = max(0, int(data.get("wins", 0) or 0))
         #: The coach whose university they were enrolled in when last scored.
         self.university_uid = str(data.get("universityUid", ""))
         raw = data.get("updatedAt")
@@ -49,28 +55,11 @@ def get(uid: str) -> Entrant | None:
     return Entrant(uid, snapshot.to_dict() or {})
 
 
-def enter(uid: str) -> None:
-    """Join the ladder. Idempotent — entering twice is still entered once."""
-    arena_collection().document(uid).set(
-        {"uid": uid, "joinedAt": SERVER_TIMESTAMP}, merge=True
-    )
-
-
-def leave(uid: str) -> None:
-    """Leave, and be off the board immediately.
-
-    Deleted rather than flagged. A flag would mean the leaderboard needed a
-    filter beside its ordering, which is the one thing that would make it
-    need a composite index.
-    """
-    arena_collection().document(uid).delete()
-
-
 def record(uid: str, *, points: int, university_uid: str) -> None:
-    """Store a score the trader's own request just computed.
+    """Update a score for somebody already on the board.
 
-    Only ever called for the caller's own uid. Nothing writes somebody else's
-    row, which is why a leaderboard can be read without being trusted.
+    A no-op for anybody who has not played: simply opening the arena must not
+    put a name on a leaderboard of people who have competed.
     """
     reference = arena_collection().document(uid)
     if not reference.get().exists:
@@ -80,6 +69,26 @@ def record(uid: str, *, points: int, university_uid: str) -> None:
         {
             "points": max(0, points),
             "universityUid": university_uid,
+            "updatedAt": SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+
+def register(uid: str, *, points: int, university_uid: str, won: bool) -> None:
+    """Put a result on the board, creating the row on a first match.
+
+    This is the only thing that makes somebody rankable. It is called when a
+    match settles, for both players, which is what makes the board a ranking
+    of people who have actually played rather than of everybody who visited.
+    """
+    arena_collection().document(uid).set(
+        {
+            "uid": uid,
+            "points": max(0, points),
+            "universityUid": university_uid,
+            "matches": Increment(1),
+            "wins": Increment(1 if won else 0),
             "updatedAt": SERVER_TIMESTAMP,
         },
         merge=True,
