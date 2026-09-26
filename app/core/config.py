@@ -110,7 +110,7 @@ class Settings(BaseSettings):
 
     # Where the browser is sent after sign-in, and the base for links inside
     # emails.
-    app_url: str = "https://trades-sable-mu.vercel.app"
+    app_url: str = "https://trades-eight-vert.vercel.app"
 
     # -- Email -------------------------------------------------------------
     # Brevo sends the branded verification email. Firebase's own template is

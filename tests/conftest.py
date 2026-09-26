@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 def settings() -> Settings:
     return Settings(
         environment="development",
-        cors_origins=["http://localhost:5173", "http://trades-sable-mu.vercel.app"],
+        cors_origins=["http://localhost:5173", "http://trades-eight-vert.vercel.app"],
         rate_limit_per_minute=1_000,
         coach_rate_limit_per_minute=1_000,
     )
