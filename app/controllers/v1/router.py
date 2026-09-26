@@ -14,6 +14,7 @@ from app.controllers.v1 import (
     chat,
     coach,
     community,
+    competition,
     imports,
     insights,
     market,
@@ -37,3 +38,4 @@ api_router.include_router(imports.router)
 api_router.include_router(brokers.router)
 api_router.include_router(university.router)
 api_router.include_router(community.router)
+api_router.include_router(competition.router)

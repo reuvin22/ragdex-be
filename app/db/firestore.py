@@ -31,6 +31,10 @@ _BILLINGS = "billings"
 _ENROLMENTS = "enrolments"
 _UNIVERSITIES = "universities"
 _UNIVERSITY_DOCS = "university-docs"
+_ARENA = "arena"
+_TOURNAMENTS = "tournaments"
+_BATTLE_QUEUE = "battle-queue"
+_BATTLES = "battles"
 _POSTS = "posts"
 _BROKERS = "broker-connections"
 
@@ -179,3 +183,27 @@ def documents_collection() -> Any:
     check in the route.
     """
     return get_client().collection(_UNIVERSITY_DOCS)
+
+
+def arena_collection() -> Any:
+    """Competitors on the ladder, one document per entrant.
+
+    Only entrants are here — leaving deletes the row. That is what lets the
+    leaderboard be a single ordering with no filter beside it.
+    """
+    return get_client().collection(_ARENA)
+
+
+def tournaments_collection() -> Any:
+    """Tournaments, and their entrants as a subcollection."""
+    return get_client().collection(_TOURNAMENTS)
+
+
+def battle_queue() -> Any:
+    """Traders waiting for an opponent. One document each, deleted on pairing."""
+    return get_client().collection(_BATTLE_QUEUE)
+
+
+def battles_collection() -> Any:
+    """Matches, settled and unsettled."""
+    return get_client().collection(_BATTLES)
