@@ -110,6 +110,7 @@ def _to_document(snapshot: DocumentSnapshot) -> UniversityDocument:
         questions=questions,
         required=bool(data.get("required", True)),
         published=bool(data.get("published", False)),
+        is_intake=bool(data.get("isIntake", False)),
         created_at=_to_datetime(data.get("createdAt")),
         updated_at=_to_datetime(data.get("updatedAt")),
     )
@@ -149,6 +150,7 @@ def _payload(
         "questions": questions,
         "required": payload.required,
         "published": payload.published,
+        "isIntake": payload.is_intake,
         "updatedAt": SERVER_TIMESTAMP,
     }
 
@@ -379,3 +381,40 @@ def submitted_uids(document_id: str) -> set[str]:
     )
 
     return {doc.id for doc in snapshot}
+
+
+def intake_for(coach_uid: str) -> UniversityDocument | None:
+    """The one form an invited trader fills in, if this coach set one."""
+    snapshot = (
+        documents_collection()
+        .where("coachUid", "==", coach_uid)
+        .where("isIntake", "==", True)
+        .limit(1)
+        .get()
+    )
+
+    for doc in snapshot:
+        document = _to_document(doc)
+        return document if document.published else None
+
+    return None
+
+
+def clear_intake(coach_uid: str, *, except_id: str) -> None:
+    """Keep "the intake form" naming one thing.
+
+    Called after a document is marked as the intake form. A coach who flags a
+    second one has changed their mind, not created an ambiguity — so the first
+    is unflagged rather than the second being refused.
+    """
+    snapshot = (
+        documents_collection()
+        .where("coachUid", "==", coach_uid)
+        .where("isIntake", "==", True)
+        .limit(MAX_DOCUMENTS)
+        .get()
+    )
+
+    for doc in snapshot:
+        if doc.id != except_id:
+            doc.reference.set({"isIntake": False}, merge=True)

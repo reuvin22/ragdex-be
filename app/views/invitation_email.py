@@ -91,7 +91,11 @@ def invitation_html(
 
     program = escape(settings.name.strip() or f"{coach_name}'s program")
     safe_brand = escape(brand)
-    safe_link = escape(f"{app_url.rstrip('/')}/#/university", quote=True)
+    # The join screen, not the roster. A recipient is not a student yet, so
+    # sending them to My University showed them a page about a program they
+    # had not joined — and, signed out, bounced them to the landing page and
+    # lost the destination entirely.
+    safe_link = escape(f"{app_url.rstrip('/')}/#/university/join", quote=True)
 
     body = template.body_html.strip() or default_body(coach_name)
     filled = {
@@ -144,7 +148,7 @@ def invitation_html(
 <tr><td style="padding:0 0 18px 0">{filled["body"]}</td></tr>
 {note_block}
 <tr><td style="padding:6px 0 26px 0">
-<a href="{safe_link}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:{accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 26px;border-radius:8px">Open RagDex to accept</a>
+<a href="{safe_link}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:{accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 26px;border-radius:8px">Open RagDex and join</a>
 </td></tr>
 {footer_block}
 <tr><td style="padding:18px 0 0 0;color:#9ca3af;font-size:12px;line-height:1.55">
@@ -179,7 +183,7 @@ def invitation_text(
         rendered(template.header_html),
         rendered(body),
         f"“{note.strip()}”" if note.strip() else "",
-        f"Open RagDex to accept: {app_url.rstrip('/')}/#/university",
+        f"Open RagDex to accept: {app_url.rstrip('/')}/#/university/join",
         rendered(template.footer_html),
     ]
 

@@ -50,6 +50,7 @@ class Enrolment:
         )
         self.note = str(data.get("note", ""))
         self.invited_at = _to_datetime(data.get("invitedAt"))
+        self.applied_at = _to_datetime(data.get("appliedAt"))
         self.responded_at = _to_datetime(data.get("respondedAt"))
 
 
@@ -95,6 +96,55 @@ def invite(coach_uid: str, student_uid: str, *, note: str) -> Enrolment:
             "invitedAt": SERVER_TIMESTAMP,
             "respondedAt": None,
         }
+    )
+
+    return Enrolment(reference.get().to_dict() or {})
+
+
+def apply(coach_uid: str, student_uid: str) -> Enrolment | None:
+    """Move an invitation to "waiting on the coach".
+
+    Only from ``pending``. Re-submitting an intake form after applying is
+    allowed — the answers are replaced — but it does not reset the clock or
+    move a decision that has already been made.
+    """
+    reference = enrolments_collection().document(key_for(coach_uid, student_uid))
+    snapshot = reference.get()
+    if not snapshot.exists:
+        return None
+
+    current = Enrolment(snapshot.to_dict() or {})
+    if current.status not in ("pending", "applied"):
+        return None
+
+    if current.status == "pending":
+        reference.set({"status": "applied", "appliedAt": SERVER_TIMESTAMP}, merge=True)
+
+    return Enrolment(reference.get().to_dict() or {})
+
+
+def decide(coach_uid: str, student_uid: str, *, approve: bool) -> Enrolment | None:
+    """The coach's answer to an application.
+
+    Only an ``applied`` row can be decided. A coach cannot approve somebody
+    who never applied, which is what keeps enrolment something the student
+    took part in rather than something done to them.
+    """
+    reference = enrolments_collection().document(key_for(coach_uid, student_uid))
+    snapshot = reference.get()
+    if not snapshot.exists:
+        return None
+
+    current = Enrolment(snapshot.to_dict() or {})
+    if current.status != "applied":
+        return None
+
+    reference.set(
+        {
+            "status": "active" if approve else "declined",
+            "respondedAt": SERVER_TIMESTAMP,
+        },
+        merge=True,
     )
 
     return Enrolment(reference.get().to_dict() or {})
@@ -162,6 +212,26 @@ def students_of(coach_uid: str) -> list[Enrolment]:
 
 def pending_for_student(student_uid: str) -> list[Enrolment]:
     return _rows("studentUid", student_uid, "pending")
+
+
+def applications_for(coach_uid: str) -> list[Enrolment]:
+    """Students who have answered the intake form and are waiting."""
+    return _rows("coachUid", coach_uid, "applied")
+
+
+def open_for_student(student_uid: str) -> Enrolment | None:
+    """Whatever is currently in front of this trader, if anything.
+
+    Checked in order of how much attention it wants: something waiting on the
+    coach is more informative than an invitation not yet answered, because it
+    tells the student they have already done their part.
+    """
+    for status in ("applied", "pending"):
+        rows = _rows("studentUid", student_uid, status)
+        if rows:
+            return rows[0]
+
+    return None
 
 
 def sent_by(coach_uid: str) -> list[Enrolment]:

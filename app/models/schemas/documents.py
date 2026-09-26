@@ -78,6 +78,13 @@ class DocumentWrite(BaseModel):
     required: bool = True
     #: Off until the coach is ready. A draft is invisible to students.
     published: bool = False
+    #: The form an invited trader fills in before they are enrolled.
+    #:
+    #: At most one per coach — setting it on a document clears it on the rest,
+    #: because "the intake form" has to name one thing. It is also the only
+    #: document readable by somebody who is *not* yet a student, which is why
+    #: it is a flag here rather than a convention about the title.
+    is_intake: bool = False
 
 
 class UniversityDocument(BaseModel):
@@ -92,6 +99,7 @@ class UniversityDocument(BaseModel):
     questions: list[Question] = Field(default_factory=list)
     required: bool = True
     published: bool = False
+    is_intake: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

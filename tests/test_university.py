@@ -250,3 +250,130 @@ def test_a_uid_shaped_like_a_path_is_refused(client, monkeypatch):
     """The path pattern stops anything odd reaching the client library."""
     response = client.post("/api/v1/university/invitations/..%2Fadmin/accept")
     assert response.status_code in (404, 422)
+
+
+# ------------------------------------------------------- the joining flow
+
+
+def test_the_intake_form_is_readable_before_enrolment(client, monkeypatch):
+    """The one document a non-student may read — that is its whole job."""
+    from app.models.schemas.documents import UniversityDocument
+
+    document = UniversityDocument(
+        id="d1", coach_uid="coach-7", kind="form", title="Intake",
+        published=True, is_intake=True,
+    )
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.get", lambda _id: document
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.is_active",
+        lambda coach, student: False,
+    )
+
+    class _Row:
+        status = "pending"
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.get",
+        lambda coach, student: _Row(),
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.submission_for",
+        lambda _doc, _uid: None,
+    )
+
+    assert client.get("/api/v1/university/documents/d1").status_code == 200
+
+
+def test_a_non_intake_form_is_not_readable_before_enrolment(client, monkeypatch):
+    """The exception is the intake flag, not "any published document"."""
+    from app.models.schemas.documents import UniversityDocument
+
+    document = UniversityDocument(
+        id="d1", coach_uid="coach-7", kind="form", title="Weekly review",
+        published=True, is_intake=False,
+    )
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.get", lambda _id: document
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.is_active",
+        lambda coach, student: False,
+    )
+
+    assert client.get("/api/v1/university/documents/d1").status_code == 404
+
+
+def test_the_intake_form_is_still_hidden_from_somebody_with_no_invitation(
+    client, monkeypatch
+):
+    from app.models.schemas.documents import UniversityDocument
+
+    document = UniversityDocument(
+        id="d1", coach_uid="coach-7", kind="form", title="Intake",
+        published=True, is_intake=True,
+    )
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.get", lambda _id: document
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.is_active",
+        lambda coach, student: False,
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.get",
+        lambda coach, student: None,
+    )
+
+    assert client.get("/api/v1/university/documents/d1").status_code == 404
+
+
+def test_only_a_coach_may_approve(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.controllers.v1.university.profiles_repo.get_profile",
+        lambda uid: Profile(uid=uid, email="s@example.com", account_type="student"),
+    )
+
+    assert (
+        client.post("/api/v1/university/applications/student-9/approve").status_code
+        == 403
+    )
+
+
+def test_approving_somebody_who_never_applied_is_a_404(
+    client, monkeypatch, coach_profile
+):
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.decide",
+        lambda coach, student, *, approve: None,
+    )
+
+    assert (
+        client.post("/api/v1/university/applications/student-9/approve").status_code
+        == 404
+    )
+
+
+def test_approval_names_the_student_and_the_calling_coach(
+    client, monkeypatch, coach_profile
+):
+    decided: list[tuple[str, str, bool]] = []
+
+    monkeypatch.setattr(
+        "app.controllers.v1.university.enrolment_repo.decide",
+        lambda coach, student, *, approve: (
+            decided.append((coach, student, approve)) or object()
+        ),
+    )
+    monkeypatch.setattr(
+        "app.controllers.v1.university.documents_repo.for_coach", lambda _uid: []
+    )
+
+    response = client.post("/api/v1/university/applications/student-9/approve")
+
+    assert response.status_code == 200
+    assert decided == [("trader-1", "student-9", True)]

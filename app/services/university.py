@@ -19,13 +19,16 @@ from app.models.repositories import directory as directory_repo
 from app.models.repositories import documents as documents_repo
 from app.models.repositories import enrolment as enrolment_repo
 from app.models.repositories import trades as trades_repo
+from app.models.repositories import university_settings as settings_repo
 from app.models.schemas.documents import (
     SubmissionList,
     SubmissionWrite,
     UniversityDocument,
 )
 from app.models.schemas.university import (
+    Application,
     CoachSummary,
+    Intake,
     Invitation,
     SentInvite,
     StudentSummary,
@@ -268,3 +271,57 @@ def submissions(coach_uid: str, document_id: str) -> SubmissionList:
     ]
 
     return SubmissionList(submissions=entries, outstanding=outstanding)
+
+
+def intake_for(student_uid: str) -> Intake:
+    """What to show somebody who followed an invitation link.
+
+    Empty when nothing is open — which is the ordinary case for anybody who
+    did not arrive from an email, and is not an error.
+    """
+    row = enrolment_repo.open_for_student(student_uid)
+    if row is None:
+        return Intake()
+
+    person = directory_repo.get_many([row.coach_uid]).get(row.coach_uid)
+    programme = settings_repo.get_settings(row.coach_uid)
+    form = documents_repo.intake_for(row.coach_uid)
+
+    return Intake(
+        status=row.status,
+        coach_uid=row.coach_uid,
+        coach_name=person.display_name if person else "",
+        coach_email=person.email if person else "",
+        university_name=programme.name,
+        note=row.note,
+        document_id=form.id if form is not None else "",
+    )
+
+
+def applications(coach_uid: str) -> list[Application]:
+    """Everyone waiting on this coach, with the form they answered.
+
+    The document id travels with each one so the coach can open the answers
+    without a second lookup per applicant.
+    """
+    rows = enrolment_repo.applications_for(coach_uid)
+    if not rows:
+        return []
+
+    people = directory_repo.get_many([row.student_uid for row in rows])
+    form = documents_repo.intake_for(coach_uid)
+
+    return [
+        Application(
+            student_uid=row.student_uid,
+            student_name=people[row.student_uid].display_name
+            if row.student_uid in people
+            else "",
+            student_email=people[row.student_uid].email
+            if row.student_uid in people
+            else "",
+            applied_at=row.applied_at,
+            document_id=form.id if form is not None else "",
+        )
+        for row in rows
+    ]

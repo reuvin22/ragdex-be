@@ -38,6 +38,8 @@ from app.models.schemas.documents import (
 )
 from app.models.schemas.trade import TradePage
 from app.models.schemas.university import (
+    ApplicationList,
+    Intake,
     InvitationList,
     InviteRequest,
     MyCoach,
@@ -298,15 +300,28 @@ def _own_document(uid: str, document_id: str) -> UniversityDocument:
 
 
 def _readable_document(uid: str, document_id: str) -> UniversityDocument:
-    """A document the caller may read — as its author, or as a student of its
-    author who has been published to."""
+    """A document the caller may read.
+
+    Three ways in, and the third is the one worth stating. An intake form has
+    to be readable by somebody who is *not* a student yet — that is its whole
+    job — so an invitation that has been sent or applied to is enough for that
+    one document. Every other document still needs an accepted enrolment.
+    """
     document = documents_repo.get(document_id)
 
     if document.coach_uid == uid:
         return document
 
-    if document.published and enrolment_repo.is_active(document.coach_uid, uid):
+    if not document.published:
+        raise NotFoundError("No such document.")
+
+    if enrolment_repo.is_active(document.coach_uid, uid):
         return document
+
+    if document.is_intake:
+        row = enrolment_repo.get(document.coach_uid, uid)
+        if row is not None and row.status in ("pending", "applied"):
+            return document
 
     raise NotFoundError("No such document.")
 
@@ -335,7 +350,12 @@ async def list_documents(user: ReadUser) -> DocumentList:
 )
 async def create_document(user: WriteUser, payload: DocumentWrite) -> UniversityDocument:
     _require_coach(user.uid)
-    return documents_repo.create(user.uid, payload)
+    created = documents_repo.create(user.uid, payload)
+
+    if created.is_intake:
+        documents_repo.clear_intake(user.uid, except_id=created.id)
+
+    return created
 
 
 @router.put(
@@ -354,7 +374,12 @@ async def update_document(
     was signed. A coach comparing the two can see that the text moved.
     """
     _own_document(user.uid, document_id)
-    return documents_repo.update(user.uid, document_id, payload)
+    saved = documents_repo.update(user.uid, document_id, payload)
+
+    if saved.is_intake:
+        documents_repo.clear_intake(user.uid, except_id=saved.id)
+
+    return saved
 
 
 @router.delete(
@@ -416,12 +441,20 @@ async def submit_document(
 
     service.check_complete(document, payload)
 
-    return documents_repo.submit(
+    submission = documents_repo.submit(
         document,
         user.uid,
         signed_name=payload.signed_name,
         answers=payload.answers,
     )
+
+    # Answering the intake form *is* the application. Done after the answers
+    # are stored, so a coach never sees a pending application with nothing
+    # behind it to read.
+    if document.is_intake:
+        enrolment_repo.apply(document.coach_uid, user.uid)
+
+    return submission
 
 
 @router.get(
@@ -436,3 +469,79 @@ async def list_submissions(
     """The author's view. A student asking gets the same 404 as a stranger."""
     _own_document(user.uid, document_id)
     return service.submissions(user.uid, document_id)
+
+
+# ------------------------------------------------------- joining a program
+
+
+@router.get(
+    "/intake",
+    response_model=Intake,
+    summary="What is waiting for you, and the form to fill in",
+)
+async def intake(user: ReadUser) -> Intake:
+    """Where the invitation email lands.
+
+    Resolves everything from the session: which invitation is open, how far it
+    has got, and whether that coach set an intake form. No uid in the URL, so
+    the link in an email is the same for everybody and cannot be edited into
+    somebody else's invitation.
+    """
+    return service.intake_for(user.uid)
+
+
+@router.get(
+    "/applications",
+    response_model=ApplicationList,
+    summary="Students waiting on your decision",
+)
+async def applications(user: ReadUser) -> ApplicationList:
+    return ApplicationList(applications=service.applications(user.uid))
+
+
+@router.post(
+    "/applications/{uid}/approve",
+    response_model=Message,
+    summary="Approve an application",
+    responses={404: {"model": ErrorResponse, "description": "Nothing to decide"}},
+)
+async def approve(user: WriteUser, uid: str = OtherUid) -> Message:
+    """`uid` names the student who applied.
+
+    Approving is what makes the enrolment active — and that one state change
+    is also what puts the coach's required documents in front of them, because
+    every document read is gated on exactly this. There is no separate "send
+    the documents" step to forget.
+    """
+    _require_coach(user.uid)
+
+    if enrolment_repo.decide(user.uid, uid, approve=True) is None:
+        raise NotFoundError("No application from them to decide.")
+
+    issued = len(
+        [d for d in documents_repo.for_coach(user.uid) if d.published and d.required]
+    )
+
+    return Message(
+        message=(
+            f"Approved. {issued} document{'s' if issued != 1 else ''} "
+            "are now waiting for them."
+            if issued
+            else "Approved."
+        )
+    )
+
+
+@router.post(
+    "/applications/{uid}/reject",
+    response_model=Message,
+    summary="Turn an application down",
+    responses={404: {"model": ErrorResponse, "description": "Nothing to decide"}},
+)
+async def reject(user: WriteUser, uid: str = OtherUid) -> Message:
+    _require_coach(user.uid)
+
+    if enrolment_repo.decide(user.uid, uid, approve=False) is None:
+        raise NotFoundError("No application from them to decide.")
+
+    return Message(message="Application turned down.")

@@ -14,10 +14,16 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 #: Where an invitation has got to.
 #:
+#: ``pending``  — invited, and the email has gone out. Nothing agreed yet.
+#: ``applied``  — they answered the coach's intake form. Waiting on the coach.
+#: ``active``   — the coach approved. This is the state that grants a coach
+#:               sight of a journal and a student sight of the documents.
+#: ``declined`` — refused, by either side.
+#:
 #: ``declined`` is kept rather than deleted, so a coach cannot re-invite
 #: somebody who said no simply by asking again — the row is still there and the
 #: write is an overwrite of a refusal, which is visible.
-EnrolmentStatus = Literal["pending", "active", "declined"]
+EnrolmentStatus = Literal["pending", "applied", "active", "declined"]
 
 MAX_NOTE = 300
 
@@ -141,3 +147,38 @@ class UniversitySettings(BaseModel):
     name: str = Field(default="", max_length=120)
     blurb: str = Field(default="", max_length=300)
     template: EmailTemplate = Field(default_factory=EmailTemplate)
+
+
+class Intake(BaseModel):
+    """What a newly invited trader is shown when they follow the email.
+
+    Answers three things at once, because the screen cannot render until it
+    knows all three: is there an invitation, how far has it got, and is there a
+    form to fill in. A coach with no intake form is an ordinary case — their
+    students accept directly.
+    """
+
+    #: Null when nothing is waiting on this account at all.
+    status: EnrolmentStatus | None = None
+    coach_uid: str = ""
+    coach_name: str = ""
+    coach_email: str = ""
+    university_name: str = ""
+    note: str = ""
+    #: The intake form's id, when the coach has set one.
+    document_id: str = ""
+
+
+class Application(BaseModel):
+    """A student waiting on a coach's decision."""
+
+    student_uid: str
+    student_name: str = ""
+    student_email: str = ""
+    applied_at: datetime | None = None
+    #: The intake form they answered, when there was one.
+    document_id: str = ""
+
+
+class ApplicationList(BaseModel):
+    applications: list[Application]
