@@ -204,6 +204,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "stop_loss": "stopLoss",
         "take_profit": "takeProfit",
         "net_pl": "netPl",
+        "risk_reward": "riskReward",
         "screenshots": "screenshots",
         "complied_entry": "compliedEntry",
         "complied_exit": "compliedExit",
@@ -278,10 +279,14 @@ def _derive(document: dict[str, Any]) -> dict[str, Any]:
             # Still open, or reopened: no result describes it yet.
             document["netPl"] = None
 
-    if entry is not None and stop is not None and target is not None:
-        risk = abs(entry - stop)
-        reward = abs(target - entry)
-        document["riskReward"] = round(reward / risk, 2) if risk else None
+    # Same rule as P&L: the trader's ratio stands, a blank one is worked out.
+    if document.get("riskReward") is None:
+        if entry is not None and stop is not None and target is not None:
+            risk = abs(entry - stop)
+            reward = abs(target - entry)
+            document["riskReward"] = round(reward / risk, 2) if risk else None
+        else:
+            document["riskReward"] = None
 
     # "No idea" plus an entry time is answerable, so answer it rather than
     # storing a blank the statistics then have to skip. Sessions the trader
@@ -401,12 +406,12 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
     # Derive from the merged view: a partial edit still has to produce a
     # correct P&L, and the fields it needs may not all be in the patch. The
     # existing half is decrypted first, or the arithmetic would run on
-    # ciphertext. A P&L in the patch is the trader's and survives; the stored
+    # ciphertext. A figure in the patch is the trader's and survives; a stored
     # one may have been derived from prices this edit changes, so it does not.
     merged = {**_readable(existing), **changes}
-    merged.pop("riskReward", None)
-    if "netPl" not in changes:
-        merged.pop("netPl", None)
+    for key in ("netPl", "riskReward"):
+        if key not in changes:
+            merged.pop(key, None)
     derived = _derive(merged)
 
     changes["netPl"] = derived.get("netPl")

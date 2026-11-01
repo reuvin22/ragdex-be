@@ -48,6 +48,8 @@ MAX_SCREENSHOTS = 6
 # Money and sizes are bounded so a typo cannot write an absurd document, and
 # so downstream arithmetic cannot be handed an infinity.
 Money = Annotated[Decimal, Field(ge=-1_000_000_000, le=1_000_000_000)]
+# Planned reward per unit of risk: 2 means 1 : 2. Past 100 is a typo, not a plan.
+Ratio = Annotated[Decimal, Field(ge=0, le=100)]
 Size = Annotated[Decimal, Field(ge=0, le=1_000_000_000)]
 
 # Defined as functions, not shared Field instances: one FieldInfo object
@@ -116,6 +118,9 @@ class TradeBase(BaseModel):
     #: multipliers included. Blank means "work it out from the prices", which
     #: is only right for instruments where one point is worth one unit.
     net_pl: Money | None = None
+    #: The planned ratio as the trader set it. Blank means "work it out from
+    #: entry, stop and target", which needs all three filled in.
+    risk_reward: Ratio | None = None
     #: Charts for this trade: keys of images uploaded here, links the
     #: trader pasted, or a mix. Plural because one chart rarely tells the
     #: story — the setup and the exit are usually two different pictures.
@@ -160,9 +165,9 @@ class TradeBase(BaseModel):
 
 
 class TradeCreate(TradeBase):
-    """What a client may send. Note what is absent: no id, no uid, no
-    risk/reward — that is the server's to decide. P&L is the exception: the
-    trader's broker knows it better than entry, exit and size can."""
+    """What a client may send. Note what is absent: no id, no uid. P&L and
+    risk/reward are accepted because the trader knows them better than the
+    prices can say; left blank, the server works them out."""
 
 
 class TradeUpdate(BaseModel):
@@ -186,6 +191,7 @@ class TradeUpdate(BaseModel):
     stop_loss: Money | None = None
     take_profit: Money | None = None
     net_pl: Money | None = None
+    risk_reward: Ratio | None = None
     screenshots: list[str] | None = Field(
         default=None, max_length=MAX_SCREENSHOTS
     )
@@ -216,7 +222,7 @@ class Trade(TradeBase):
     id: str
     # Re-declared unbounded: a stored figure is shown as it is, never refused.
     net_pl: Decimal | None = None
-    risk_reward: Decimal | None = None
+    risk_reward: Decimal | None = None  # likewise
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

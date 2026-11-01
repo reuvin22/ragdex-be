@@ -71,12 +71,31 @@ def test_created_trade_accepts_the_traders_own_pl(client, monkeypatch) -> None:
     assert captured["payload"].net_pl == Decimal("-312.50")
 
 
-def test_computed_figures_are_still_refused(client) -> None:
+def test_server_owned_fields_are_still_refused(client) -> None:
     response = client.post(
         "/api/v1/trades",
-        json={"ticker": "NVDA", "direction": "Long", "risk_reward": "9"},
+        json={"ticker": "NVDA", "direction": "Long", "uid": "someone-else"},
     )
     assert response.status_code == 422
+
+
+def test_entered_risk_reward_wins_over_stop_and_target() -> None:
+    from app.models.repositories.trades import _derive
+
+    base = {"entryPrice": 100.0, "stopLoss": 99.0, "takeProfit": 103.0}
+
+    assert _derive({**base, "riskReward": 2.5})["riskReward"] == 2.5
+    assert _derive({**base, "riskReward": None})["riskReward"] == 3.0
+    assert _derive({"entryPrice": 100.0})["riskReward"] is None
+    # No stop or target on file, but the trader planned one.
+    assert _derive({"entryPrice": 100.0, "riskReward": 2.0})["riskReward"] == 2.0
+
+
+def test_a_ratio_past_100_is_refused() -> None:
+    from app.models.schemas.trade import TradeCreate
+
+    with pytest.raises(ValidationError):
+        TradeCreate(ticker="NVDA", direction="Long", risk_reward=Decimal("250"))
 
 
 def test_entered_pl_wins_over_the_price_arithmetic() -> None:
