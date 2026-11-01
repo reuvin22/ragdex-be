@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 AccountType = Literal["student", "coach", "individual"]
 #: "free" is the default tier: the journal and the figures computed from it.
@@ -34,6 +34,35 @@ Period = Literal["daily", "weekly", "monthly"]
 #: over weeks. It also decides what the finding means: a daily read is about
 #: yesterday's session, a monthly one is about a pattern.
 LeakCadence = Period
+
+#: A challenge bought outright, a reset bought to retry one, or an account the
+#: firm funded after a pass. Kept apart because they cost and mean different
+#: things: evals and resets are money spent, funded accounts are capital won.
+PropAccountKind = Literal["eval", "reset", "funded"]
+PropAccountStatus = Literal["active", "blown"]
+
+#: Enough for a busy year of challenges; past that it is a typo loop.
+MAX_PROP_ACCOUNTS = 300
+
+
+class PropAccount(BaseModel):
+    """One prop firm account the trader has paid for or been funded with."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    kind: PropAccountKind
+    firm: str = Field(min_length=1, max_length=80)
+    size: Decimal = Field(ge=0, le=1_000_000_000)
+    #: What it cost in USD. None on a funded account: the firm paid, not you.
+    price: Decimal | None = Field(default=None, ge=0, le=1_000_000)
+    status: PropAccountStatus = "active"
+
+    @model_validator(mode="after")
+    def _funded_has_no_price(self) -> PropAccount:
+        if self.kind == "funded":
+            self.price = None
+        return self
 
 
 class ProfileUpdate(BaseModel):
@@ -80,6 +109,11 @@ class ProfileUpdate(BaseModel):
     trading_rules: str | None = Field(default=None, max_length=2_000)
     leak_cadence: LeakCadence | None = None
     edge_window: Period | None = None
+    # The whole list, replaced on every save: it is edited a row at a time on
+    # the profile page, and a full write cannot leave two rows half-merged.
+    prop_accounts: list[PropAccount] | None = Field(
+        default=None, max_length=MAX_PROP_ACCOUNTS
+    )
 
 
 class Profile(BaseModel):
@@ -110,6 +144,7 @@ class Profile(BaseModel):
     # behavioural reading on purpose: two cards over the same window tell you
     # the same thing twice.
     edge_window: Period = "monthly"
+    prop_accounts: list[PropAccount] = Field(default_factory=list)
     plan: PlanId = "free"
     plan_since: datetime | None = None
     created_at: datetime | None = None

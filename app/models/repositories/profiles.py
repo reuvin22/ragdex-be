@@ -12,11 +12,12 @@ from decimal import Decimal
 from typing import Any
 
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
+from pydantic import ValidationError
 
 from app.core.errors import NotFoundError
 from app.core.security import CurrentUser
 from app.db.firestore import profile_doc
-from app.models.schemas.profile import PlanId, Profile, ProfileUpdate
+from app.models.schemas.profile import PlanId, Profile, ProfileUpdate, PropAccount
 
 from . import billing, directory
 
@@ -43,7 +44,39 @@ _FIELDS = {
     "trading_rules": "tradingRules",
     "leak_cadence": "leakCadence",
     "edge_window": "edgeWindow",
+    "prop_accounts": "propAccounts",
 }
+
+
+def _prop_accounts_of(data: dict[str, Any]) -> list[PropAccount]:
+    """The stored prop accounts, skipping any row that no longer validates.
+
+    One unreadable row should cost that row, not the whole profile — the
+    profile is read on every page load.
+    """
+    stored = data.get("propAccounts")
+    if not isinstance(stored, list):
+        return []
+
+    kept: list[PropAccount] = []
+    for row in stored:
+        try:
+            kept.append(PropAccount.model_validate(row))
+        except ValidationError:
+            continue
+    return kept
+
+
+def _storable(value: Any) -> Any:
+    """Decimals as floats, at any depth: Firestore stores neither Decimal nor
+    a map holding one."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, list):
+        return [_storable(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _storable(item) for key, item in value.items()}
+    return value
 
 
 def _decimal(value: Any) -> Decimal | None:
@@ -92,6 +125,7 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         trading_rules=data.get("tradingRules", ""),
         leak_cadence=data.get("leakCadence") or "daily",
         edge_window=data.get("edgeWindow") or "monthly",
+        prop_accounts=_prop_accounts_of(data),
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),
@@ -142,8 +176,7 @@ def update_profile(uid: str, payload: ProfileUpdate) -> Profile:
     for field, key in _FIELDS.items():
         if field not in dumped:
             continue
-        value = dumped[field]
-        changes[key] = float(value) if isinstance(value, Decimal) else value
+        changes[key] = _storable(dumped[field])
 
     reference = profile_doc(uid)
     if changes:
