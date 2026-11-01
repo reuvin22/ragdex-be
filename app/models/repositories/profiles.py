@@ -7,19 +7,27 @@ request body, so a caller cannot rewrite whose account this is.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypeVar
 
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.core.errors import NotFoundError
 from app.core.security import CurrentUser
 from app.db.firestore import profile_doc
-from app.models.schemas.profile import PlanId, Profile, ProfileUpdate, PropAccount
+from app.models.schemas.profile import (
+    PlanId,
+    Profile,
+    ProfileUpdate,
+    PropAccount,
+    PropPayout,
+)
 
 from . import billing, directory
+
+Row = TypeVar("Row", bound=BaseModel)
 
 _FIELDS = {
     "display_name": "displayName",
@@ -46,33 +54,40 @@ _FIELDS = {
     "edge_window": "edgeWindow",
     "prop_accounts": "propAccounts",
     "prop_firms": "propFirms",
+    "prop_payouts": "propPayouts",
 }
 
 
-def _prop_accounts_of(data: dict[str, Any]) -> list[PropAccount]:
-    """The stored prop accounts, skipping any row that no longer validates.
+def _rows_of(data: dict[str, Any], key: str, model: type[Row]) -> list[Row]:
+    """A stored list of rows, skipping any row that no longer validates.
 
     One unreadable row should cost that row, not the whole profile — the
     profile is read on every page load.
     """
-    stored = data.get("propAccounts")
+    stored = data.get(key)
     if not isinstance(stored, list):
         return []
 
-    kept: list[PropAccount] = []
+    kept: list[Row] = []
     for row in stored:
         try:
-            kept.append(PropAccount.model_validate(row))
+            kept.append(model.model_validate(row))
         except ValidationError:
             continue
     return kept
 
 
+def _prop_accounts_of(data: dict[str, Any]) -> list[PropAccount]:
+    return _rows_of(data, "propAccounts", PropAccount)
+
+
 def _storable(value: Any) -> Any:
-    """Decimals as floats, at any depth: Firestore stores neither Decimal nor
-    a map holding one."""
+    """Decimals as floats and dates as ISO text, at any depth: Firestore
+    stores neither a Decimal nor a bare date, nor a map holding one."""
     if isinstance(value, Decimal):
         return float(value)
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.isoformat()
     if isinstance(value, list):
         return [_storable(item) for item in value]
     if isinstance(value, dict):
@@ -128,6 +143,7 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         edge_window=data.get("edgeWindow") or "monthly",
         prop_accounts=_prop_accounts_of(data),
         prop_firms=[name for name in data.get("propFirms", []) if isinstance(name, str)],
+        prop_payouts=_rows_of(data, "propPayouts", PropPayout),
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),

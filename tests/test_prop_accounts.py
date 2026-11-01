@@ -59,6 +59,25 @@ def test_rows_are_stored_without_decimals() -> None:
     assert isinstance(stored[0]["price"], float)
 
 
+def _payout(**overrides) -> dict:
+    defaults = dict(id="p1", firm="Topstep", amount="1250.50", paid_on="2026-10-28")
+    return {**defaults, **overrides}
+
+
+def test_payouts_are_stored_with_their_date_as_text() -> None:
+    update = ProfileUpdate(prop_payouts=[_payout()])
+    stored = _storable(update.model_dump(exclude_unset=True)["prop_payouts"])
+    assert stored == [
+        {"id": "p1", "firm": "Topstep", "amount": 1250.5, "paid_on": "2026-10-28"}
+    ]
+
+
+@pytest.mark.parametrize("amount", ["0", "-50"])
+def test_a_payout_must_be_money_received(amount: str) -> None:
+    with pytest.raises(ValidationError):
+        ProfileUpdate(prop_payouts=[_payout(amount=amount)])
+
+
 def test_one_unreadable_row_does_not_take_the_profile_down() -> None:
     rows = _prop_accounts_of({"propAccounts": [_row(), {"kind": "eval"}, "junk"]})
     assert [row.id for row in rows] == ["a1"]

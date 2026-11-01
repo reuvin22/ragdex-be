@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -72,6 +72,23 @@ class PropAccount(BaseModel):
         return self
 
 
+#: Withdrawals from funded accounts. Generous: a payout every week for years.
+MAX_PROP_PAYOUTS = 500
+
+
+class PropPayout(BaseModel):
+    """Money a prop firm paid out to the trader. Against what was spent on
+    evals and resets, it is what the prop firm side actually earned."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    firm: str = Field(min_length=1, max_length=80)
+    #: USD, as received.
+    amount: Decimal = Field(gt=0, le=10_000_000)
+    paid_on: date
+
+
 def _clean_firms(names: list[str] | None) -> list[str] | None:
     """Trimmed, blanks dropped, and one entry per firm whatever its casing —
     "topstep" and "Topstep" are the same firm listed twice."""
@@ -135,6 +152,9 @@ class ProfileUpdate(BaseModel):
         default=None, max_length=MAX_PROP_ACCOUNTS
     )
     prop_firms: list[str] | None = Field(default=None, max_length=MAX_PROP_FIRMS)
+    prop_payouts: list[PropPayout] | None = Field(
+        default=None, max_length=MAX_PROP_PAYOUTS
+    )
 
     @field_validator("prop_firms")
     @classmethod
@@ -172,6 +192,7 @@ class Profile(BaseModel):
     edge_window: Period = "monthly"
     prop_accounts: list[PropAccount] = Field(default_factory=list)
     prop_firms: list[str] = Field(default_factory=list)
+    prop_payouts: list[PropPayout] = Field(default_factory=list)
     plan: PlanId = "free"
     plan_since: datetime | None = None
     created_at: datetime | None = None
