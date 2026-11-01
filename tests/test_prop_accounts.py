@@ -11,7 +11,9 @@ from pydantic import ValidationError
 
 
 def _row(**overrides) -> dict:
-    defaults = dict(id="a1", kind="eval", firm="Topstep", size="50000", price="49", status="active")
+    defaults = dict(
+        id="a1", kind="eval", firm="Topstep", size="50000", price="49", status="active"
+    )
     return {**defaults, **overrides}
 
 
