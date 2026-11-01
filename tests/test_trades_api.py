@@ -53,7 +53,7 @@ def test_a_client_cannot_choose_whose_journal_to_read(
     assert seen["uid"] == verified_user.uid
 
 
-def test_created_trade_ignores_client_supplied_pl(client, monkeypatch) -> None:
+def test_created_trade_accepts_the_traders_own_pl(client, monkeypatch) -> None:
     captured = {}
 
     def fake_create(uid, payload):
@@ -64,12 +64,33 @@ def test_created_trade_ignores_client_supplied_pl(client, monkeypatch) -> None:
 
     response = client.post(
         "/api/v1/trades",
-        json={"ticker": "NVDA", "direction": "Long", "net_pl": "99999"},
+        json={"ticker": "ES", "direction": "Long", "net_pl": "-312.50"},
     )
 
-    # Rejected outright rather than silently dropped, so a client that tries
-    # learns that it cannot.
+    assert response.status_code == 201
+    assert captured["payload"].net_pl == Decimal("-312.50")
+
+
+def test_computed_figures_are_still_refused(client) -> None:
+    response = client.post(
+        "/api/v1/trades",
+        json={"ticker": "NVDA", "direction": "Long", "risk_reward": "9"},
+    )
     assert response.status_code == 422
+
+
+def test_entered_pl_wins_over_the_price_arithmetic() -> None:
+    """A futures contract moving 2 points is $100, not $2 — the trader's
+    figure is the one the calendar has to show."""
+    from app.models.repositories.trades import _derive
+
+    base = {"entryPrice": 5000.0, "exitPrice": 5002.0, "size": 1.0, "direction": "Long"}
+
+    assert _derive({**base, "netPl": 100.0})["netPl"] == 100.0
+    assert _derive({**base, "netPl": None})["netPl"] == 2.0
+    assert _derive({**base, "exitPrice": None})["netPl"] is None
+    # An open trade the trader has already booked a partial result on.
+    assert _derive({**base, "exitPrice": None, "netPl": 40.0})["netPl"] == 40.0
 
 
 def test_delete_returns_no_content(client, monkeypatch) -> None:

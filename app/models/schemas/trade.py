@@ -112,6 +112,10 @@ class TradeBase(BaseModel):
     rationale: str = _text()
     stop_loss: Money | None = None
     take_profit: Money | None = None
+    #: The realised result as the trader booked it, fees and contract
+    #: multipliers included. Blank means "work it out from the prices", which
+    #: is only right for instruments where one point is worth one unit.
+    net_pl: Money | None = None
     #: Charts for this trade: keys of images uploaded here, links the
     #: trader pasted, or a mix. Plural because one chart rarely tells the
     #: story — the setup and the exit are usually two different pictures.
@@ -157,7 +161,8 @@ class TradeBase(BaseModel):
 
 class TradeCreate(TradeBase):
     """What a client may send. Note what is absent: no id, no uid, no
-    computed figures — those are the server's to decide."""
+    risk/reward — that is the server's to decide. P&L is the exception: the
+    trader's broker knows it better than entry, exit and size can."""
 
 
 class TradeUpdate(BaseModel):
@@ -180,6 +185,7 @@ class TradeUpdate(BaseModel):
     rationale: str | None = Field(default=None, max_length=2_000)
     stop_loss: Money | None = None
     take_profit: Money | None = None
+    net_pl: Money | None = None
     screenshots: list[str] | None = Field(
         default=None, max_length=MAX_SCREENSHOTS
     )
@@ -208,6 +214,7 @@ class Trade(TradeBase):
     """A stored trade, with what the server worked out."""
 
     id: str
+    # Re-declared unbounded: a stored figure is shown as it is, never refused.
     net_pl: Decimal | None = None
     risk_reward: Decimal | None = None
     created_at: datetime | None = None

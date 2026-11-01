@@ -203,6 +203,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
         "rationale": "rationale",
         "stop_loss": "stopLoss",
         "take_profit": "takeProfit",
+        "net_pl": "netPl",
         "screenshots": "screenshots",
         "complied_entry": "compliedEntry",
         "complied_exit": "compliedExit",
@@ -254,11 +255,13 @@ def session_for(entry_at: datetime | None) -> str:
 
 
 def _derive(document: dict[str, Any]) -> dict[str, Any]:
-    """Figures the server owns.
+    """Figures the server works out.
 
-    Computed here rather than accepted from the client: a P&L a caller can
-    set is a P&L that can be made up, and every statistic in the app is built
-    on these two numbers.
+    P&L the trader entered is kept as given: it is what the broker paid out,
+    with commission, swap and contract size already in it, and the calendar
+    and every statistic are meant to agree with the trader's statement. Only
+    a blank one is filled in from the prices, and that arithmetic is exact
+    only where one point is worth one unit — shares, mostly.
     """
     entry = document.get("entryPrice")
     exit_price = document.get("exitPrice")
@@ -267,12 +270,13 @@ def _derive(document: dict[str, Any]) -> dict[str, Any]:
     target = document.get("takeProfit")
     direction = document.get("direction", "Long")
 
-    if entry is not None and exit_price is not None and size is not None:
-        move = exit_price - entry if direction == "Long" else entry - exit_price
-        document["netPl"] = round(move * size, 2)
-    elif "exitPrice" in document and exit_price is None:
-        # The trade was reopened; the old result no longer describes it.
-        document["netPl"] = None
+    if document.get("netPl") is None:
+        if entry is not None and exit_price is not None and size is not None:
+            move = exit_price - entry if direction == "Long" else entry - exit_price
+            document["netPl"] = round(move * size, 2)
+        else:
+            # Still open, or reopened: no result describes it yet.
+            document["netPl"] = None
 
     if entry is not None and stop is not None and target is not None:
         risk = abs(entry - stop)
@@ -397,10 +401,12 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
     # Derive from the merged view: a partial edit still has to produce a
     # correct P&L, and the fields it needs may not all be in the patch. The
     # existing half is decrypted first, or the arithmetic would run on
-    # ciphertext.
+    # ciphertext. A P&L in the patch is the trader's and survives; the stored
+    # one may have been derived from prices this edit changes, so it does not.
     merged = {**_readable(existing), **changes}
-    for key in ("netPl", "riskReward"):
-        merged.pop(key, None)
+    merged.pop("riskReward", None)
+    if "netPl" not in changes:
+        merged.pop("netPl", None)
     derived = _derive(merged)
 
     changes["netPl"] = derived.get("netPl")

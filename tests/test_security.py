@@ -66,7 +66,7 @@ def test_trade_payload_rejects_unknown_fields() -> None:
     """extra="forbid" is what stops a caller writing a field the API does not
     know about into a Firestore document."""
     with pytest.raises(ValueError):
-        TradeCreate(ticker="NVDA", direction="Long", netPl=999_999)
+        TradeCreate(ticker="NVDA", direction="Long", uid="someone-else")
 
 
 def test_trade_payload_rejects_a_javascript_url() -> None:
