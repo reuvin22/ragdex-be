@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 AccountType = Literal["student", "coach", "individual"]
 #: "free" is the default tier: the journal and the figures computed from it.
@@ -40,6 +40,11 @@ LeakCadence = Period
 #: things: evals and resets are money spent, funded accounts are capital won.
 PropAccountKind = Literal["eval", "reset", "funded"]
 PropAccountStatus = Literal["active", "blown"]
+#: What the firm funds. Decides which account sizes the form offers.
+PropMarket = Literal["futures", "cfd"]
+
+#: The firms a trader lists as theirs, offered when they record an account.
+MAX_PROP_FIRMS = 30
 
 #: Enough for a busy year of challenges; past that it is a typo loop.
 MAX_PROP_ACCOUNTS = 300
@@ -52,6 +57,8 @@ class PropAccount(BaseModel):
 
     id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     kind: PropAccountKind
+    #: None on rows recorded before the market was asked for.
+    market: PropMarket | None = None
     firm: str = Field(min_length=1, max_length=80)
     size: Decimal = Field(ge=0, le=1_000_000_000)
     #: What it cost in USD. None on a funded account: the firm paid, not you.
@@ -63,6 +70,19 @@ class PropAccount(BaseModel):
         if self.kind == "funded":
             self.price = None
         return self
+
+
+def _clean_firms(names: list[str] | None) -> list[str] | None:
+    """Trimmed, blanks dropped, and one entry per firm whatever its casing —
+    "topstep" and "Topstep" are the same firm listed twice."""
+    if names is None:
+        return None
+    kept: dict[str, str] = {}
+    for name in names:
+        cleaned = name.strip()
+        if cleaned and cleaned.lower() not in kept:
+            kept[cleaned.lower()] = cleaned[:80]
+    return list(kept.values())
 
 
 class ProfileUpdate(BaseModel):
@@ -114,6 +134,12 @@ class ProfileUpdate(BaseModel):
     prop_accounts: list[PropAccount] | None = Field(
         default=None, max_length=MAX_PROP_ACCOUNTS
     )
+    prop_firms: list[str] | None = Field(default=None, max_length=MAX_PROP_FIRMS)
+
+    @field_validator("prop_firms")
+    @classmethod
+    def _unique_firms(cls, names: list[str] | None) -> list[str] | None:
+        return _clean_firms(names)
 
 
 class Profile(BaseModel):
@@ -145,6 +171,7 @@ class Profile(BaseModel):
     # the same thing twice.
     edge_window: Period = "monthly"
     prop_accounts: list[PropAccount] = Field(default_factory=list)
+    prop_firms: list[str] = Field(default_factory=list)
     plan: PlanId = "free"
     plan_since: datetime | None = None
     created_at: datetime | None = None

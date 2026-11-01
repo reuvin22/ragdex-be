@@ -38,6 +38,18 @@ def test_bad_rows_are_refused(bad: dict) -> None:
         ProfileUpdate(prop_accounts=[bad])
 
 
+def test_market_is_futures_or_cfd_and_optional_on_old_rows() -> None:
+    assert PropAccount.model_validate(_row(market="cfd")).market == "cfd"
+    assert PropAccount.model_validate(_row()).market is None
+    with pytest.raises(ValidationError):
+        PropAccount.model_validate(_row(market="crypto"))
+
+
+def test_prop_firms_are_trimmed_and_listed_once() -> None:
+    update = ProfileUpdate(prop_firms=[" Topstep ", "topstep", "", "FTMO"])
+    assert update.prop_firms == ["Topstep", "FTMO"]
+
+
 def test_rows_are_stored_without_decimals() -> None:
     dumped = ProfileUpdate(prop_accounts=[_row()]).model_dump(exclude_unset=True)
     stored = _storable(dumped["prop_accounts"])

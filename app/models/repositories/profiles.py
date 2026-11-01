@@ -45,6 +45,7 @@ _FIELDS = {
     "leak_cadence": "leakCadence",
     "edge_window": "edgeWindow",
     "prop_accounts": "propAccounts",
+    "prop_firms": "propFirms",
 }
 
 
@@ -126,6 +127,7 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         leak_cadence=data.get("leakCadence") or "daily",
         edge_window=data.get("edgeWindow") or "monthly",
         prop_accounts=_prop_accounts_of(data),
+        prop_firms=[name for name in data.get("propFirms", []) if isinstance(name, str)],
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),
