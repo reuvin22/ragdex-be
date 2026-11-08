@@ -12,7 +12,14 @@ from fastapi import APIRouter, Path, Query, Response, status
 from app.controllers.deps import ReadUser, StandardRateLimit, WriteUser
 from app.models.repositories import trades as repo
 from app.models.schemas.common import ErrorResponse
-from app.models.schemas.trade import Trade, TradeCreate, TradePage, TradeUpdate
+from app.models.schemas.trade import (
+    AccountRename,
+    AccountRenamed,
+    Trade,
+    TradeCreate,
+    TradePage,
+    TradeUpdate,
+)
 
 router = APIRouter(
     prefix="/trades",
@@ -38,6 +45,16 @@ async def list_trades(
     """Newest first, cursor-paged."""
     items, next_cursor = repo.list_trades(user.uid, limit=limit, cursor=cursor)
     return TradePage(items=items, next_cursor=next_cursor)
+
+
+@router.post(
+    "/accounts/rename",
+    response_model=AccountRenamed,
+    summary="Move a journal's trades to another account name",
+)
+async def rename_account(user: WriteUser, payload: AccountRename) -> AccountRenamed:
+    moved = repo.rename_account(user.uid, payload.from_name, payload.to_name)
+    return AccountRenamed(moved=moved)
 
 
 @router.get(

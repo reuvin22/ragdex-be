@@ -82,3 +82,8 @@ def test_one_unreadable_row_does_not_take_the_profile_down() -> None:
     rows = _prop_accounts_of({"propAccounts": [_row(), {"kind": "eval"}, "junk"]})
     assert [row.id for row in rows] == ["a1"]
     assert _prop_accounts_of({}) == []
+
+
+def test_journal_accounts_are_trimmed_and_listed_once() -> None:
+    update = ProfileUpdate(journal_accounts=[" Phase 1 ", "phase 1", "", "Phase 2"])
+    assert update.journal_accounts == ["Phase 1", "Phase 2"]

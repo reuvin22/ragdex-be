@@ -183,3 +183,37 @@ def test_a_trade_filed_before_charts_were_plural_still_opens() -> None:
     assert _screenshots_of({"screenshot": ""}) == []
     assert _screenshots_of({"screenshots": ["a", None, 3, "b"]}) == ["a", "b"]
     assert _screenshots_of({}) == []
+
+
+def test_a_trade_is_filed_under_its_journal_account() -> None:
+    from app.models.repositories.trades import _SEALED, _to_document
+    from app.models.schemas.trade import TradeCreate, TradeUpdate
+
+    created = TradeCreate(ticker="US30", direction="Short", account=" FTMO Phase 2 ")
+    assert _to_document(created, partial=False)["account"] == "FTMO Phase 2"
+    # Moving a trade to another journal is a one-field patch.
+    moved = TradeUpdate(account="FTMO Funded")
+    assert _to_document(moved, partial=True) == {"account": "FTMO Funded"}
+    assert "account" in _SEALED
+    # Trades logged before journals existed belong to the default one.
+    assert TradeCreate(ticker="US30", direction="Short").account == ""
+
+
+def test_renaming_a_journal_is_scoped_to_the_token_uid(
+    client, monkeypatch, verified_user
+) -> None:
+    seen: dict[str, str] = {}
+
+    def fake_rename(uid, old, new):
+        seen.update(uid=uid, old=old, new=new)
+        return 7
+
+    monkeypatch.setattr(repo, "rename_account", fake_rename)
+
+    response = client.post(
+        "/api/v1/trades/accounts/rename", json={"from_name": "", "to_name": "Phase 1"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"moved": 7}
+    assert seen == {"uid": verified_user.uid, "old": "", "new": "Phase 1"}

@@ -97,6 +97,9 @@ class TradeBase(BaseModel):
 
     ticker: str = Field(min_length=1, max_length=24)
     direction: Direction
+    #: Which of the trader's journals this trade belongs to — one per trading
+    #: account or challenge phase. Blank is the unnamed default journal.
+    account: str = Field(default="", max_length=80)
     size: Size | None = None
     size_unit: str = Field(default="Shares", max_length=24)
 
@@ -177,6 +180,7 @@ class TradeUpdate(BaseModel):
 
     ticker: str | None = Field(default=None, min_length=1, max_length=24)
     direction: Direction | None = None
+    account: str | None = Field(default=None, max_length=80)
     size: Size | None = None
     size_unit: str | None = Field(default=None, max_length=24)
     entry_price: Money | None = None
@@ -225,6 +229,21 @@ class Trade(TradeBase):
     risk_reward: Decimal | None = None  # likewise
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class AccountRename(BaseModel):
+    """Move a journal's trades to another name. ``from_name`` may be blank:
+    that is the default journal every trade logged before journals existed
+    belongs to."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    from_name: str = Field(default="", max_length=80)
+    to_name: str = Field(default="", max_length=80)
+
+
+class AccountRenamed(BaseModel):
+    moved: int
 
 
 class TradePage(BaseModel):

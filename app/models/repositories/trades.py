@@ -23,7 +23,7 @@ from google.cloud.firestore_v1 import (
 
 from app.core.crypto import seal_fields, unseal_fields
 from app.core.errors import AppError, NotFoundError
-from app.db.firestore import journal_collection
+from app.db.firestore import get_client, journal_collection
 from app.models.schemas.trade import Trade, TradeCreate, TradeUpdate, TradingSession
 
 MAX_PAGE_SIZE = 200
@@ -66,6 +66,7 @@ _SEALED = frozenset(
     {
         "ticker",
         "direction",
+        "account",
         "size",
         "sizeUnit",
         "entryPrice",
@@ -157,6 +158,7 @@ def _to_trade(snapshot: DocumentSnapshot) -> Trade:
         id=snapshot.id,
         ticker=data.get("ticker", ""),
         direction=data.get("direction", "Long"),
+        account=data.get("account", ""),
         size=_to_decimal(data.get("size")),
         size_unit=data.get("sizeUnit", "Shares"),
         entry_price=_to_decimal(data.get("entryPrice")),
@@ -192,6 +194,7 @@ def _to_document(payload: TradeCreate | TradeUpdate, *, partial: bool) -> dict[s
     names = {
         "ticker": "ticker",
         "direction": "direction",
+        "account": "account",
         "size": "size",
         "size_unit": "sizeUnit",
         "entry_price": "entryPrice",
@@ -426,6 +429,33 @@ def update_trade(uid: str, trade_id: str, payload: TradeUpdate) -> Trade:
 
 def delete_trade(uid: str, trade_id: str) -> None:
     _owned_doc(uid, trade_id).reference.delete()
+
+
+#: Firestore's ceiling on writes in one batch.
+_BATCH_LIMIT = 500
+
+
+def rename_account(uid: str, old: str, new: str) -> int:
+    """Move every trade filed under one journal to another; returns how many.
+
+    A scan rather than a query: the account name is sealed, and Firestore
+    cannot filter on ciphertext. Batched so a long journal is a handful of
+    writes rather than one round trip per trade.
+    """
+    matching = [
+        snapshot.reference
+        for snapshot in _owned(uid).stream()
+        if _readable(snapshot).get("account", "") == old
+    ]
+    for start in range(0, len(matching), _BATCH_LIMIT):
+        batch = get_client().batch()
+        for reference in matching[start : start + _BATCH_LIMIT]:
+            batch.update(
+                reference,
+                {**seal_fields({"account": new}, _SEALED), "updatedAt": SERVER_TIMESTAMP},
+            )
+        batch.commit()
+    return len(matching)
 
 
 def all_trades(uid: str, *, limit: int = 300) -> list[Trade]:

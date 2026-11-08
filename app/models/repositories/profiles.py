@@ -55,6 +55,7 @@ _FIELDS = {
     "prop_accounts": "propAccounts",
     "prop_firms": "propFirms",
     "prop_payouts": "propPayouts",
+    "journal_accounts": "journalAccounts",
 }
 
 
@@ -144,6 +145,9 @@ def _to_profile(uid: str, data: dict[str, Any]) -> Profile:
         prop_accounts=_prop_accounts_of(data),
         prop_firms=[name for name in data.get("propFirms", []) if isinstance(name, str)],
         prop_payouts=_rows_of(data, "propPayouts", PropPayout),
+        journal_accounts=[
+            name for name in data.get("journalAccounts", []) if isinstance(name, str)
+        ],
         plan=plan,
         plan_since=plan_since,
         created_at=_to_datetime(data.get("createdAt")),

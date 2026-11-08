@@ -45,6 +45,8 @@ PropMarket = Literal["futures", "cfd"]
 
 #: The firms a trader lists as theirs, offered when they record an account.
 MAX_PROP_FIRMS = 30
+#: Separate journals — one per trading account or challenge phase.
+MAX_JOURNAL_ACCOUNTS = 30
 
 #: Enough for a busy year of challenges; past that it is a typo loop.
 MAX_PROP_ACCOUNTS = 300
@@ -155,8 +157,12 @@ class ProfileUpdate(BaseModel):
     prop_payouts: list[PropPayout] | None = Field(
         default=None, max_length=MAX_PROP_PAYOUTS
     )
+    #: The trader's separate journals — one per account or challenge phase.
+    journal_accounts: list[str] | None = Field(
+        default=None, max_length=MAX_JOURNAL_ACCOUNTS
+    )
 
-    @field_validator("prop_firms")
+    @field_validator("prop_firms", "journal_accounts")
     @classmethod
     def _unique_firms(cls, names: list[str] | None) -> list[str] | None:
         return _clean_firms(names)
@@ -193,6 +199,7 @@ class Profile(BaseModel):
     prop_accounts: list[PropAccount] = Field(default_factory=list)
     prop_firms: list[str] = Field(default_factory=list)
     prop_payouts: list[PropPayout] = Field(default_factory=list)
+    journal_accounts: list[str] = Field(default_factory=list)
     plan: PlanId = "free"
     plan_since: datetime | None = None
     created_at: datetime | None = None
